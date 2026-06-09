@@ -1,0 +1,8 @@
+name = Pool Tournament
+description = Comprehensive pool tournament management: custom entities, Fargo Rate integration, and bracket manager connectivity.
+backdrop = 1.x
+type = module
+dependencies[] = entity_plus
+dependencies[] = field
+dependencies[] = field_ui
+dependencies[] = views

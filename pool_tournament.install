@@ -1,0 +1,312 @@
+<?php
+/**
+ * @file
+ * Install, update, and uninstall functions for pool_tournament.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function pool_tournament_schema() {
+  $schema = array();
+
+  $schema['pool_tournament_player'] = array(
+    'description' => 'Stores player entities.',
+    'fields' => array(
+      'player_id' => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+      'bundle'     => array('type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => 'player'),
+      'label'      => array('type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''),
+      'uid'        => array('type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'default' => NULL, 'description' => 'Backdrop user ID (nullable).'),
+      'member_id'  => array('type' => 'varchar', 'length' => 64, 'not null' => FALSE, 'default' => NULL, 'description' => 'Fargo readableId.'),
+      'fargo_rating'  => array('type' => 'varchar', 'length' => 16, 'not null' => FALSE, 'default' => NULL),
+      'robustness'    => array('type' => 'varchar', 'length' => 16, 'not null' => FALSE, 'default' => NULL),
+      'location'      => array('type' => 'varchar', 'length' => 255, 'not null' => FALSE, 'default' => NULL),
+      'created'    => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
+      'status'     => array('type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1),
+    ),
+    'primary key' => array('player_id'),
+    'indexes' => array(
+      'uid'       => array('uid'),
+      'member_id' => array('member_id'),
+      'bundle'    => array('bundle'),
+    ),
+  );
+
+  $schema['pool_tournament_player_type'] = array(
+    'description' => 'Stores player_type entities.',
+    'fields' => array(
+      'player_type_id' => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+      'bundle'         => array('type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => 'singles'),
+      'label'          => array('type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''),
+      'description'    => array('type' => 'text', 'not null' => FALSE),
+      'players_per_side' => array('type' => 'int', 'size' => 'tiny', 'not null' => TRUE, 'default' => 1),
+      'created'        => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
+    ),
+    'primary key' => array('player_type_id'),
+    'indexes' => array('bundle' => array('bundle')),
+  );
+
+  $schema['pool_tournament_game_type'] = array(
+    'description' => 'Stores game_type entities.',
+    'fields' => array(
+      'game_type_id' => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+      'bundle'       => array('type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => '8ball'),
+      'label'        => array('type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''),
+      'description'  => array('type' => 'text', 'not null' => FALSE),
+      'created'      => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
+    ),
+    'primary key' => array('game_type_id'),
+    'indexes' => array('bundle' => array('bundle')),
+  );
+
+  $schema['pool_tournament_tournament_type'] = array(
+    'description' => 'Stores tournament_type entities.',
+    'fields' => array(
+      'tournament_type_id' => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+      'bundle'             => array('type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => 'open'),
+      'label'              => array('type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''),
+      'description'        => array('type' => 'text', 'not null' => FALSE),
+      'created'            => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
+    ),
+    'primary key' => array('tournament_type_id'),
+    'indexes' => array('bundle' => array('bundle')),
+  );
+
+  $schema['pool_tournament_venue'] = array(
+    'description' => 'Stores venue entities.',
+    'fields' => array(
+      'venue_id'    => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+      'bundle'      => array('type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => 'venue'),
+      'label'       => array('type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''),
+      'address'     => array('type' => 'varchar', 'length' => 255, 'not null' => FALSE, 'default' => NULL),
+      'city'        => array('type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'default' => NULL),
+      'state'       => array('type' => 'varchar', 'length' => 64, 'not null' => FALSE, 'default' => NULL),
+      'phone'       => array('type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'default' => NULL),
+      'created'     => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
+    ),
+    'primary key' => array('venue_id'),
+    'indexes' => array('bundle' => array('bundle')),
+  );
+
+  // Many-to-many: player preferences (game_type, player_type, tournament_type, venue).
+  $schema['pool_tournament_player_preference'] = array(
+    'description' => 'Player tournament preference selections.',
+    'fields' => array(
+      'player_id'       => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE),
+      'preference_type' => array('type' => 'varchar', 'length' => 64, 'not null' => TRUE),
+      'entity_id'       => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE),
+    ),
+    'primary key' => array('player_id', 'preference_type', 'entity_id'),
+    'indexes' => array(
+      'player_id' => array('player_id'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function pool_tournament_install() {
+  _pool_tournament_create_tournament_content_type();
+  _pool_tournament_create_tournament_fields();
+}
+
+/**
+ * Creates the Tournament content type.
+ */
+function _pool_tournament_create_tournament_content_type() {
+  $type = array(
+    'type'        => 'tournament',
+    'name'        => st('Tournament'),
+    'base'        => 'node_content',
+    'description' => st('A pool tournament event.'),
+    'custom'      => TRUE,
+    'modified'    => TRUE,
+    'locked'      => FALSE,
+    'settings'    => array(
+      'promote_enabled' => FALSE,
+    ),
+  );
+  $type = node_type_set_defaults($type);
+  node_type_save($type);
+  node_add_body_field($type, st('Description'));
+}
+
+/**
+ * Creates and attaches fields to the tournament content type.
+ */
+function _pool_tournament_create_tournament_fields() {
+  $fields = array(
+    'field_tournament_date' => array(
+      'field' => array(
+        'field_name'  => 'field_tournament_date',
+        'type'        => 'number_integer',
+        'cardinality' => 1,
+      ),
+      'instance' => array(
+        'field_name'  => 'field_tournament_date',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Tournament Date'),
+        'description' => t('Unix timestamp of the tournament date/time.'),
+        'required'    => FALSE,
+        'widget'      => array('type' => 'number'),
+        'display'     => array(
+          'default' => array('label' => 'above', 'type' => 'number_integer'),
+        ),
+      ),
+    ),
+    'field_bracket_manager_id' => array(
+      'field' => array(
+        'field_name'  => 'field_bracket_manager_id',
+        'type'        => 'number_integer',
+        'cardinality' => 1,
+      ),
+      'instance' => array(
+        'field_name'  => 'field_bracket_manager_id',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Bracket Manager Tournament ID'),
+        'description' => t('The corresponding tournament ID in the bracket manager application.'),
+        'required'    => FALSE,
+        'widget'      => array('type' => 'number'),
+      ),
+    ),
+    'field_game_type_id' => array(
+      'field' => array(
+        'field_name'  => 'field_game_type_id',
+        'type'        => 'number_integer',
+        'cardinality' => 1,
+      ),
+      'instance' => array(
+        'field_name'  => 'field_game_type_id',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Game Type'),
+        'required'    => FALSE,
+        'widget'      => array('type' => 'number'),
+      ),
+    ),
+    'field_player_type_id' => array(
+      'field' => array(
+        'field_name'  => 'field_player_type_id',
+        'type'        => 'number_integer',
+        'cardinality' => 1,
+      ),
+      'instance' => array(
+        'field_name'  => 'field_player_type_id',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Player Type'),
+        'required'    => FALSE,
+        'widget'      => array('type' => 'number'),
+      ),
+    ),
+    'field_tournament_type_id' => array(
+      'field' => array(
+        'field_name'  => 'field_tournament_type_id',
+        'type'        => 'number_integer',
+        'cardinality' => 1,
+      ),
+      'instance' => array(
+        'field_name'  => 'field_tournament_type_id',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Tournament Type'),
+        'required'    => FALSE,
+        'widget'      => array('type' => 'number'),
+      ),
+    ),
+    'field_venue_id' => array(
+      'field' => array(
+        'field_name'  => 'field_venue_id',
+        'type'        => 'number_integer',
+        'cardinality' => 1,
+      ),
+      'instance' => array(
+        'field_name'  => 'field_venue_id',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Venue'),
+        'required'    => FALSE,
+        'widget'      => array('type' => 'number'),
+      ),
+    ),
+    'field_max_players' => array(
+      'field' => array(
+        'field_name'  => 'field_max_players',
+        'type'        => 'number_integer',
+        'cardinality' => 1,
+      ),
+      'instance' => array(
+        'field_name'  => 'field_max_players',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Maximum Players'),
+        'required'    => FALSE,
+        'widget'      => array('type' => 'number'),
+      ),
+    ),
+    'field_registration_open' => array(
+      'field' => array(
+        'field_name'  => 'field_registration_open',
+        'type'        => 'list_boolean',
+        'cardinality' => 1,
+        'settings'    => array('allowed_values' => array(0 => 'Closed', 1 => 'Open')),
+      ),
+      'instance' => array(
+        'field_name'  => 'field_registration_open',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Registration Open'),
+        'required'    => FALSE,
+        'default_value' => array(array('value' => 1)),
+        'widget'      => array('type' => 'options_onoff'),
+      ),
+    ),
+  );
+
+  foreach ($fields as $field_name => $definition) {
+    if (!field_info_field($field_name)) {
+      field_create_field($definition['field']);
+    }
+    if (!field_info_instance('node', $field_name, 'tournament')) {
+      field_create_instance($definition['instance']);
+    }
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function pool_tournament_uninstall() {
+  // Remove tournament content type and its fields.
+  $fields = array(
+    'field_tournament_date',
+    'field_bracket_manager_id',
+    'field_game_type_id',
+    'field_player_type_id',
+    'field_tournament_type_id',
+    'field_venue_id',
+    'field_max_players',
+    'field_registration_open',
+  );
+  foreach ($fields as $field_name) {
+    $instance = field_info_instance('node', $field_name, 'tournament');
+    if ($instance) {
+      field_delete_instance($instance);
+    }
+    $field = field_info_field($field_name);
+    if ($field) {
+      field_delete_field($field_name);
+    }
+  }
+
+  // Purge field data.
+  field_purge_batch(1000);
+
+  // Delete content type.
+  node_type_delete('tournament');
+}

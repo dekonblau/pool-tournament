@@ -1,0 +1,834 @@
+<?php
+/**
+ * @file
+ * Pool Tournament module.
+ *
+ * Custom entities: player, player_type, game_type, tournament_type, venue.
+ * Tournament content type (node) with bracket manager sync.
+ * Fargo Rate API integration.
+ */
+
+// ---------------------------------------------------------------------------
+// Entity info
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_entity_info().
+ */
+function pool_tournament_entity_info() {
+  $info = array();
+
+  // ── Player ────────────────────────────────────────────────────────────────
+  $info['player'] = array(
+    'label'            => t('Player'),
+    'entity class'     => 'Player',
+    'controller class' => 'EntityPlusController',
+    'base table'       => 'pool_tournament_player',
+    'fieldable'        => TRUE,
+    'entity keys'      => array('id' => 'player_id', 'bundle' => 'bundle', 'label' => 'label'),
+    'bundle keys'      => array('bundle' => 'bundle'),
+    'bundles'          => array(),
+    'uri callback'     => 'entity_class_uri',
+    'access callback'  => 'pool_tournament_entity_access',
+    'label callback'   => 'entity_class_label',
+    'module'           => 'pool_tournament',
+    'view modes'       => array(
+      'full'    => array('label' => t('Full'), 'custom settings' => FALSE),
+      'teaser'  => array('label' => t('Teaser'), 'custom settings' => TRUE),
+    ),
+  );
+
+  // ── Player Type ───────────────────────────────────────────────────────────
+  $info['player_type'] = array(
+    'label'            => t('Player Type'),
+    'entity class'     => 'PlayerType',
+    'controller class' => 'EntityPlusController',
+    'base table'       => 'pool_tournament_player_type',
+    'fieldable'        => TRUE,
+    'entity keys'      => array('id' => 'player_type_id', 'bundle' => 'bundle', 'label' => 'label'),
+    'bundle keys'      => array('bundle' => 'bundle'),
+    'bundles'          => array(),
+    'uri callback'     => 'entity_class_uri',
+    'access callback'  => 'pool_tournament_entity_access',
+    'label callback'   => 'entity_class_label',
+    'module'           => 'pool_tournament',
+  );
+
+  // ── Game Type ─────────────────────────────────────────────────────────────
+  $info['game_type'] = array(
+    'label'            => t('Game Type'),
+    'entity class'     => 'GameType',
+    'controller class' => 'EntityPlusController',
+    'base table'       => 'pool_tournament_game_type',
+    'fieldable'        => TRUE,
+    'entity keys'      => array('id' => 'game_type_id', 'bundle' => 'bundle', 'label' => 'label'),
+    'bundle keys'      => array('bundle' => 'bundle'),
+    'bundles'          => array(),
+    'uri callback'     => 'entity_class_uri',
+    'access callback'  => 'pool_tournament_entity_access',
+    'label callback'   => 'entity_class_label',
+    'module'           => 'pool_tournament',
+  );
+
+  // ── Tournament Type ───────────────────────────────────────────────────────
+  $info['tournament_type'] = array(
+    'label'            => t('Tournament Type'),
+    'entity class'     => 'TournamentType',
+    'controller class' => 'EntityPlusController',
+    'base table'       => 'pool_tournament_tournament_type',
+    'fieldable'        => TRUE,
+    'entity keys'      => array('id' => 'tournament_type_id', 'bundle' => 'bundle', 'label' => 'label'),
+    'bundle keys'      => array('bundle' => 'bundle'),
+    'bundles'          => array(),
+    'uri callback'     => 'entity_class_uri',
+    'access callback'  => 'pool_tournament_entity_access',
+    'label callback'   => 'entity_class_label',
+    'module'           => 'pool_tournament',
+  );
+
+  // ── Venue ─────────────────────────────────────────────────────────────────
+  $info['venue'] = array(
+    'label'            => t('Venue'),
+    'entity class'     => 'Venue',
+    'controller class' => 'EntityPlusController',
+    'base table'       => 'pool_tournament_venue',
+    'fieldable'        => TRUE,
+    'entity keys'      => array('id' => 'venue_id', 'bundle' => 'bundle', 'label' => 'label'),
+    'bundle keys'      => array('bundle' => 'bundle'),
+    'bundles'          => array(),
+    'uri callback'     => 'entity_class_uri',
+    'access callback'  => 'pool_tournament_entity_access',
+    'label callback'   => 'entity_class_label',
+    'module'           => 'pool_tournament',
+  );
+
+  return $info;
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ *
+ * Populates bundles from config for all five entity types.
+ */
+function pool_tournament_entity_info_alter(&$entity_info) {
+  $definitions = array(
+    'player'          => array('config_prefix' => 'player.bundle',          'admin_base' => 'admin/structure/player-bundle'),
+    'player_type'     => array('config_prefix' => 'player_type.bundle',     'admin_base' => 'admin/structure/player-type-bundle'),
+    'game_type'       => array('config_prefix' => 'game_type.bundle',       'admin_base' => 'admin/structure/game-type-bundle'),
+    'tournament_type' => array('config_prefix' => 'tournament_type.bundle', 'admin_base' => 'admin/structure/tournament-type-bundle'),
+    'venue'           => array('config_prefix' => 'venue.bundle',           'admin_base' => 'admin/structure/venue-bundle'),
+  );
+
+  foreach ($definitions as $entity_type => $def) {
+    if (!isset($entity_info[$entity_type])) {
+      continue;
+    }
+    $names = config_get_names_with_prefix($def['config_prefix'] . '.');
+    foreach ($names as $config_name) {
+      $config = config_get($config_name);
+      if (empty($config['bundle'])) {
+        continue;
+      }
+      $bundle = $config['bundle'];
+      $entity_info[$entity_type]['bundles'][$bundle] = array(
+        'label' => $config['label'],
+        'admin' => array(
+          'path'            => $def['admin_base'] . '/' . $bundle,
+          'real path'       => $def['admin_base'] . '/' . $bundle,
+          'bundle argument' => substr_count($def['admin_base'], '/'),
+          'access arguments' => array('administer pool tournament'),
+        ),
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Autoload & config
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_autoload_info().
+ */
+function pool_tournament_autoload_info() {
+  return array(
+    'Player'         => 'entities/Player.php',
+    'PlayerType'     => 'entities/PlayerType.php',
+    'GameType'       => 'entities/GameType.php',
+    'TournamentType' => 'entities/TournamentType.php',
+    'Venue'          => 'entities/Venue.php',
+  );
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function pool_tournament_config_info() {
+  return array(
+    'pool_tournament.settings' => array(
+      'label'  => t('Pool Tournament settings'),
+      'group'  => t('Pool Tournament'),
+    ),
+    'player.bundle'          => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
+    'player_type.bundle'     => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
+    'game_type.bundle'       => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
+    'tournament_type.bundle' => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
+    'venue.bundle'           => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Permissions & access
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_permission().
+ */
+function pool_tournament_permission() {
+  return array(
+    'administer pool tournament' => array(
+      'title'       => t('Administer Pool Tournament'),
+      'description' => t('Create and manage all pool tournament entities, bundles, and settings.'),
+      'restrict access' => TRUE,
+    ),
+    'manage players' => array(
+      'title'       => t('Manage players'),
+      'description' => t('Create, edit, and delete player records.'),
+    ),
+    'view players' => array(
+      'title' => t('View player profiles'),
+    ),
+    'edit own player' => array(
+      'title'       => t('Edit own player profile'),
+      'description' => t('Allows a user to edit the player record linked to their account.'),
+    ),
+    'manage pool entities' => array(
+      'title'       => t('Manage pool reference entities'),
+      'description' => t('Create and edit game types, player types, tournament types, and venues.'),
+    ),
+  );
+}
+
+/**
+ * Access callback for all pool tournament entities.
+ */
+function pool_tournament_entity_access($op, $entity, $account = NULL, $entity_type = NULL) {
+  if (!isset($account)) {
+    $account = $GLOBALS['user'];
+  }
+  if (user_access('administer pool tournament', $account)) {
+    return TRUE;
+  }
+  if ($entity_type === 'player') {
+    if ($op === 'view') {
+      return user_access('view players', $account);
+    }
+    if (($op === 'update' || $op === 'edit') && isset($entity->uid) && $entity->uid == $account->uid) {
+      return user_access('edit own player', $account);
+    }
+    return user_access('manage players', $account);
+  }
+  // For all other entity types, require manage permission.
+  return user_access('manage pool entities', $account);
+}
+
+// ---------------------------------------------------------------------------
+// Menu
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_menu().
+ */
+function pool_tournament_menu() {
+  $items = array();
+
+  // ── Top-level Tournaments navigation ──────────────────────────────────────
+  $items['tournaments'] = array(
+    'title'            => 'Tournaments',
+    'page callback'    => 'pool_tournament_tournaments_page',
+    'access arguments' => array('access content'),
+    'type'             => MENU_NORMAL_ITEM,
+    'menu_name'        => 'main-menu',
+    'weight'           => 10,
+  );
+
+  // ── Module settings ────────────────────────────────────────────────────────
+  $items['admin/config/pool-tournament'] = array(
+    'title'            => 'Pool Tournament',
+    'description'      => 'Configure the pool tournament module.',
+    'page callback'    => 'system_admin_menu_block_page',
+    'access arguments' => array('administer pool tournament'),
+    'file'             => 'system.admin.inc',
+    'file path'        => backdrop_get_path('module', 'system'),
+    'type'             => MENU_NORMAL_ITEM,
+  );
+  $items['admin/config/pool-tournament/settings'] = array(
+    'title'            => 'Settings',
+    'description'      => 'Bracket manager API connection and Fargo Rate settings.',
+    'page callback'    => 'backdrop_get_form',
+    'page arguments'   => array('pool_tournament_settings_form'),
+    'access arguments' => array('administer pool tournament'),
+    'file'             => 'includes/pool_tournament.admin.inc',
+    'type'             => MENU_NORMAL_ITEM,
+  );
+
+  // ── Players ────────────────────────────────────────────────────────────────
+  $items['players'] = array(
+    'title'            => 'Players',
+    'page callback'    => 'pool_tournament_player_list_page',
+    'access arguments' => array('view players'),
+    'type'             => MENU_NORMAL_ITEM,
+  );
+  $items['player/add'] = array(
+    'title'            => 'Add player',
+    'page callback'    => 'pool_tournament_player_add_page',
+    'access arguments' => array('manage players'),
+    'type'             => MENU_LOCAL_ACTION,
+  );
+  $items['player/add/%pool_tournament_player_bundle'] = array(
+    'title callback'   => 'pool_tournament_player_add_title',
+    'title arguments'  => array(2),
+    'page callback'    => 'backdrop_get_form',
+    'page arguments'   => array('pool_tournament_player_form', 2),
+    'access arguments' => array('manage players'),
+    'file'             => 'includes/pool_tournament.forms.inc',
+  );
+  $items['player/%pool_tournament_player'] = array(
+    'title callback'   => 'entity_class_label',
+    'title arguments'  => array(1),
+    'page callback'    => 'pool_tournament_player_view',
+    'page arguments'   => array(1),
+    'access callback'  => 'pool_tournament_entity_access',
+    'access arguments' => array('view', 1),
+    'load arguments'   => array('%map', '%index'),
+  );
+  $items['player/%pool_tournament_player/view'] = array(
+    'title'  => 'View',
+    'type'   => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+  $items['player/%pool_tournament_player/edit'] = array(
+    'title'            => 'Edit',
+    'page callback'    => 'backdrop_get_form',
+    'page arguments'   => array('pool_tournament_player_form', 1),
+    'access callback'  => 'pool_tournament_entity_access',
+    'access arguments' => array('update', 1),
+    'type'             => MENU_LOCAL_TASK,
+    'file'             => 'includes/pool_tournament.forms.inc',
+  );
+  $items['player/%pool_tournament_player/delete'] = array(
+    'title'            => 'Delete',
+    'page callback'    => 'backdrop_get_form',
+    'page arguments'   => array('pool_tournament_player_delete_form', 1),
+    'access callback'  => 'pool_tournament_entity_access',
+    'access arguments' => array('delete', 1),
+    'type'             => MENU_LOCAL_TASK,
+    'file'             => 'includes/pool_tournament.forms.inc',
+  );
+  $items['player/%pool_tournament_player/preferences'] = array(
+    'title'            => 'Tournament preferences',
+    'page callback'    => 'backdrop_get_form',
+    'page arguments'   => array('pool_tournament_player_preferences_form', 1),
+    'access callback'  => 'pool_tournament_player_preferences_access',
+    'access arguments' => array(1),
+    'type'             => MENU_LOCAL_TASK,
+    'file'             => 'includes/pool_tournament.forms.inc',
+  );
+
+  // ── Player bundle admin ────────────────────────────────────────────────────
+  $items['admin/structure/player-bundle'] = array(
+    'title'            => 'Player bundles',
+    'page callback'    => 'pool_tournament_bundle_list_page',
+    'page arguments'   => array('player', 'player.bundle', 'admin/structure/player-bundle'),
+    'access arguments' => array('administer pool tournament'),
+    'file'             => 'includes/pool_tournament.admin.inc',
+  );
+  $items['admin/structure/player-bundle/add'] = array(
+    'title'            => 'Add bundle',
+    'page callback'    => 'backdrop_get_form',
+    'page arguments'   => array('pool_tournament_bundle_form', 'player.bundle'),
+    'access arguments' => array('administer pool tournament'),
+    'type'             => MENU_LOCAL_ACTION,
+    'file'             => 'includes/pool_tournament.admin.inc',
+  );
+
+  // ── Reference entity routes (player_type, game_type, tournament_type, venue) ─
+  $ref_entities = array(
+    'player_type'     => array('path' => 'player-type',     'title' => 'Player Types',     'config' => 'player_type.bundle',     'id_key' => 'player_type_id'),
+    'game_type'       => array('path' => 'game-type',       'title' => 'Game Types',       'config' => 'game_type.bundle',       'id_key' => 'game_type_id'),
+    'tournament_type' => array('path' => 'tournament-type', 'title' => 'Tournament Types', 'config' => 'tournament_type.bundle', 'id_key' => 'tournament_type_id'),
+    'venue'           => array('path' => 'venue',           'title' => 'Venues',           'config' => 'venue.bundle',           'id_key' => 'venue_id'),
+  );
+
+  foreach ($ref_entities as $entity_type => $def) {
+    $p = $def['path'];
+    $t = $def['title'];
+    $c = $def['config'];
+    $k = $def['id_key'];
+    $admin_base = 'admin/structure/' . $p . '-bundle';
+
+    // List page.
+    $items[$p . 's'] = array(
+      'title'            => $t,
+      'page callback'    => 'pool_tournament_ref_entity_list_page',
+      'page arguments'   => array($entity_type),
+      'access arguments' => array('manage pool entities'),
+    );
+    // Add (select bundle).
+    $items[$p . '/add'] = array(
+      'title'            => 'Add ' . $p,
+      'page callback'    => 'pool_tournament_ref_entity_add_page',
+      'page arguments'   => array($entity_type, $p),
+      'access arguments' => array('manage pool entities'),
+      'type'             => MENU_LOCAL_ACTION,
+    );
+    // Add specific bundle.
+    $items[$p . '/add/%'] = array(
+      'title'            => 'Add ' . $p,
+      'page callback'    => 'backdrop_get_form',
+      'page arguments'   => array('pool_tournament_generic_entity_form', $entity_type, 2, $k, $p . 's'),
+      'access arguments' => array('manage pool entities'),
+      'file'             => 'includes/pool_tournament.forms.inc',
+    );
+    // View/edit/delete.
+    $items[$p . '/%pool_tournament_' . str_replace('-', '_', $p)] = array(
+      'title callback'   => 'entity_class_label',
+      'title arguments'  => array(1),
+      'page callback'    => 'pool_tournament_ref_entity_view',
+      'page arguments'   => array($entity_type, 1),
+      'access arguments' => array('manage pool entities'),
+    );
+    $items[$p . '/%pool_tournament_' . str_replace('-', '_', $p) . '/edit'] = array(
+      'title'            => 'Edit',
+      'page callback'    => 'backdrop_get_form',
+      'page arguments'   => array('pool_tournament_generic_entity_form', $entity_type, 1, $k, $p . 's'),
+      'access arguments' => array('manage pool entities'),
+      'type'             => MENU_LOCAL_TASK,
+      'file'             => 'includes/pool_tournament.forms.inc',
+    );
+
+    // Bundle admin.
+    $items[$admin_base] = array(
+      'title'            => $t . ' bundles',
+      'page callback'    => 'pool_tournament_bundle_list_page',
+      'page arguments'   => array($entity_type, $c, $admin_base),
+      'access arguments' => array('administer pool tournament'),
+      'file'             => 'includes/pool_tournament.admin.inc',
+    );
+    $items[$admin_base . '/add'] = array(
+      'title'            => 'Add bundle',
+      'page callback'    => 'backdrop_get_form',
+      'page arguments'   => array('pool_tournament_bundle_form', $c),
+      'access arguments' => array('administer pool tournament'),
+      'type'             => MENU_LOCAL_ACTION,
+      'file'             => 'includes/pool_tournament.admin.inc',
+    );
+  }
+
+  return $items;
+}
+
+// ---------------------------------------------------------------------------
+// Menu wildcard loaders
+// ---------------------------------------------------------------------------
+
+function pool_tournament_player_load($player_id) {
+  return entity_load_single('player', $player_id);
+}
+function pool_tournament_player_bundle_load($bundle) {
+  $config = config_get('player.bundle.' . $bundle);
+  return $config ?: FALSE;
+}
+function pool_tournament_player_type_load($id) { return entity_load_single('player_type', $id); }
+function pool_tournament_game_type_load($id)   { return entity_load_single('game_type',   $id); }
+function pool_tournament_tournament_type_load($id) { return entity_load_single('tournament_type', $id); }
+function pool_tournament_venue_load($id)       { return entity_load_single('venue', $id); }
+
+// ---------------------------------------------------------------------------
+// Page callbacks
+// ---------------------------------------------------------------------------
+
+/**
+ * /tournaments — upcoming tournaments filtered by logged-in player preferences.
+ */
+function pool_tournament_tournaments_page() {
+  global $user;
+
+  // Build a Views embed if the view exists, otherwise fall back to a node query.
+  if (module_exists('views') && ($view = views_get_view('pool_tournament_upcoming'))) {
+    $output = $view->preview('page');
+    if (!empty($output)) {
+      return $output;
+    }
+  }
+
+  // Fallback: simple node query.
+  $query = db_select('node', 'n')
+    ->fields('n', array('nid', 'title'))
+    ->condition('n.type', 'tournament')
+    ->condition('n.status', 1)
+    ->orderBy('n.created', 'ASC')
+    ->execute();
+
+  $rows = array();
+  foreach ($query as $row) {
+    $rows[] = array(l($row->title, 'node/' . $row->nid));
+  }
+
+  return theme('table', array(
+    'header' => array(t('Tournament')),
+    'rows'   => $rows,
+    'empty'  => t('No upcoming tournaments.'),
+  ));
+}
+
+function pool_tournament_player_list_page() {
+  $players = entity_load('player');
+  $rows    = array();
+  foreach ($players as $player) {
+    $rows[] = array(
+      l($player->label(), 'player/' . $player->id()),
+      check_plain($player->fargo_rating ?: '—'),
+      check_plain($player->location ?: '—'),
+    );
+  }
+  return theme('table', array(
+    'header' => array(t('Name'), t('Fargo Rating'), t('Location')),
+    'rows'   => $rows,
+    'empty'  => t('No players found.'),
+  ));
+}
+
+function pool_tournament_player_add_page() {
+  $bundles = _pool_tournament_bundle_list('player.bundle');
+  if (count($bundles) === 1) {
+    $bundle = key($bundles);
+    backdrop_goto('player/add/' . $bundle);
+  }
+  $items = array();
+  foreach ($bundles as $bundle => $info) {
+    $items[] = l($info['label'], 'player/add/' . $bundle);
+  }
+  return theme('item_list', array('items' => $items, 'title' => t('Choose player type')));
+}
+
+function pool_tournament_player_add_title($bundle) {
+  $config = config_get('player.bundle.' . $bundle);
+  return t('Add @type player', array('@type' => isset($config['label']) ? $config['label'] : $bundle));
+}
+
+function pool_tournament_player_view($player) {
+  return entity_view('player', array($player->id() => $player), 'full');
+}
+
+function pool_tournament_ref_entity_list_page($entity_type) {
+  $entities = entity_load($entity_type);
+  $rows     = array();
+  $path_map = array(
+    'player_type' => 'player-type', 'game_type' => 'game-type',
+    'tournament_type' => 'tournament-type', 'venue' => 'venue',
+  );
+  $base = $path_map[$entity_type];
+  foreach ($entities as $entity) {
+    $rows[] = array(
+      l($entity->label(), $base . '/' . $entity->id()),
+      check_plain($entity->bundle()),
+    );
+  }
+  return theme('table', array(
+    'header' => array(t('Label'), t('Bundle')),
+    'rows'   => $rows,
+    'empty'  => t('No @type records found.', array('@type' => $entity_type)),
+  ));
+}
+
+function pool_tournament_ref_entity_add_page($entity_type, $path) {
+  $prefix_map = array(
+    'player_type' => 'player_type.bundle', 'game_type' => 'game_type.bundle',
+    'tournament_type' => 'tournament_type.bundle', 'venue' => 'venue.bundle',
+  );
+  $bundles = _pool_tournament_bundle_list($prefix_map[$entity_type]);
+  if (count($bundles) === 1) {
+    backdrop_goto($path . '/add/' . key($bundles));
+  }
+  $items = array();
+  foreach ($bundles as $bundle => $info) {
+    $items[] = l($info['label'], $path . '/add/' . $bundle);
+  }
+  return theme('item_list', array('items' => $items));
+}
+
+function pool_tournament_ref_entity_view($entity_type, $entity) {
+  return entity_view($entity_type, array($entity->id() => $entity), 'full');
+}
+
+// ---------------------------------------------------------------------------
+// Player preferences access
+// ---------------------------------------------------------------------------
+
+function pool_tournament_player_preferences_access($player) {
+  global $user;
+  if (user_access('administer pool tournament') || user_access('manage players')) {
+    return TRUE;
+  }
+  return user_access('edit own player') && isset($player->uid) && $player->uid == $user->uid;
+}
+
+// ---------------------------------------------------------------------------
+// Node info — Tournament content type
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_node_info().
+ */
+function pool_tournament_node_info() {
+  return array(
+    'tournament' => array(
+      'name'        => t('Tournament'),
+      'base'        => 'node_content',
+      'description' => t('A pool tournament event.'),
+      'has_title'   => TRUE,
+      'title_label' => t('Tournament name'),
+      'locked'      => FALSE,
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tournament node → bracket manager sync
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_node_insert().
+ */
+function pool_tournament_node_insert($node) {
+  if ($node->type !== 'tournament') {
+    return;
+  }
+  module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.bracket');
+  $result = pool_tournament_bracket_create_tournament($node->title);
+  if ($result && !empty($result['id'])) {
+    // Store the bracket manager ID back on the node.
+    $node->field_bracket_manager_id[LANGUAGE_NONE][0]['value'] = $result['id'];
+    // Use db_update to avoid triggering hook_node_update loop.
+    db_update('field_data_field_bracket_manager_id')
+      ->fields(array('field_bracket_manager_id_value' => $result['id']))
+      ->condition('entity_id', $node->nid)
+      ->condition('entity_type', 'node')
+      ->execute();
+    db_update('field_revision_field_bracket_manager_id')
+      ->fields(array('field_bracket_manager_id_value' => $result['id']))
+      ->condition('entity_id', $node->nid)
+      ->condition('entity_type', 'node')
+      ->execute();
+    watchdog('pool_tournament', 'Tournament node @nid synced to bracket manager ID @bid.',
+      array('@nid' => $node->nid, '@bid' => $result['id']));
+  }
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function pool_tournament_node_update($node) {
+  if ($node->type !== 'tournament') {
+    return;
+  }
+  $bid = _pool_tournament_get_bracket_id($node);
+  if (!$bid) {
+    return;
+  }
+  module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.bracket');
+  pool_tournament_bracket_rename_tournament($bid, $node->title);
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function pool_tournament_node_delete($node) {
+  if ($node->type !== 'tournament') {
+    return;
+  }
+  $bid = _pool_tournament_get_bracket_id($node);
+  if (!$bid) {
+    return;
+  }
+  module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.bracket');
+  pool_tournament_bracket_delete_tournament($bid);
+}
+
+// ---------------------------------------------------------------------------
+// Form alterations
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_form_alter().
+ */
+function pool_tournament_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id === 'tournament_node_form') {
+    module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.forms');
+    pool_tournament_tournament_node_form_alter($form, $form_state);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// User–player relationship
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_user_cancel().
+ *
+ * Unlinks the Backdrop user from their player record when the account is cancelled.
+ */
+function pool_tournament_user_cancel($edit, $account, $method) {
+  db_update('pool_tournament_player')
+    ->fields(array('uid' => NULL))
+    ->condition('uid', $account->uid)
+    ->execute();
+}
+
+/**
+ * Implements hook_user_delete().
+ */
+function pool_tournament_user_delete($account) {
+  db_update('pool_tournament_player')
+    ->fields(array('uid' => NULL))
+    ->condition('uid', $account->uid)
+    ->execute();
+}
+
+/**
+ * Returns the player entity linked to a Backdrop user, or FALSE.
+ */
+function pool_tournament_player_for_user($uid) {
+  $result = entity_load('player', FALSE, array('uid' => $uid));
+  return $result ? reset($result) : FALSE;
+}
+
+// ---------------------------------------------------------------------------
+// Views integration
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_views_query_alter().
+ *
+ * Filters the tournament listing by the logged-in player's preferences
+ * when the view named 'pool_tournament_upcoming' is displayed.
+ */
+function pool_tournament_views_query_alter(&$view, &$query) {
+  if ($view->name !== 'pool_tournament_upcoming') {
+    return;
+  }
+  global $user;
+  if (!$user->uid) {
+    return;
+  }
+  $player = pool_tournament_player_for_user($user->uid);
+  if (!$player) {
+    return;
+  }
+
+  module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.forms');
+  $prefs = _pool_tournament_player_preferences_load($player->id());
+
+  $field_map = array(
+    'game_type'       => 'field_data_field_game_type_id',
+    'player_type'     => 'field_data_field_player_type_id',
+    'tournament_type' => 'field_data_field_tournament_type_id',
+    'venue'           => 'field_data_field_venue_id',
+  );
+
+  foreach ($field_map as $ptype => $table) {
+    if (empty($prefs[$ptype])) {
+      continue;
+    }
+    $condition = db_or();
+    foreach ($prefs[$ptype] as $entity_id) {
+      $condition->condition($table . '.field_' . $ptype . '_id_value', $entity_id);
+    }
+    $query->add_where('preferences_' . $ptype, $condition);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Field extra fields (non-Field-API properties exposed to Manage Display)
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_field_extra_fields().
+ */
+function pool_tournament_field_extra_fields() {
+  $extra = array();
+
+  $player_extras = array(
+    'player_id'    => array('label' => t('Player ID'),     'weight' => -15),
+    'label'        => array('label' => t('Full name'),     'weight' => -10),
+    'member_id'    => array('label' => t('Member ID'),     'weight' => -5),
+    'fargo_rating' => array('label' => t('Fargo Rating'),  'weight' => 0),
+    'robustness'   => array('label' => t('Robustness'),    'weight' => 1),
+    'location'     => array('label' => t('Location'),      'weight' => 2),
+  );
+
+  $bundles = config_get_names_with_prefix('player.bundle.');
+  foreach ($bundles as $config_name) {
+    $config = config_get($config_name);
+    if (!empty($config['bundle'])) {
+      foreach ($player_extras as $key => $info) {
+        $extra['player'][$config['bundle']]['display'][$key] = $info;
+        $extra['player'][$config['bundle']]['form'][$key]    = $info;
+      }
+    }
+  }
+
+  return $extra;
+}
+
+// ---------------------------------------------------------------------------
+// Entity render
+// ---------------------------------------------------------------------------
+
+/**
+ * Implements hook_entity_plus_view().
+ */
+function pool_tournament_entity_plus_view($entity, $entity_type, $view_mode, $langcode) {
+  if ($entity_type === 'player') {
+    $entity->content['label'] = array(
+      '#markup' => '<div class="player-name"><strong>' . check_plain($entity->label) . '</strong></div>',
+      '#weight' => -10,
+    );
+    if ($entity->fargo_rating) {
+      $entity->content['fargo_rating'] = array(
+        '#markup' => '<div class="fargo-rating">' . t('Fargo Rating: @r', array('@r' => $entity->fargo_rating)) . '</div>',
+        '#weight' => 0,
+      );
+    }
+    if ($entity->location) {
+      $entity->content['location'] = array(
+        '#markup' => '<div class="player-location">' . check_plain($entity->location) . '</div>',
+        '#weight' => 2,
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function _pool_tournament_bundle_list($config_prefix) {
+  $bundles = array();
+  $names   = config_get_names_with_prefix($config_prefix . '.');
+  foreach ($names as $name) {
+    $config = config_get($name);
+    if (!empty($config['bundle'])) {
+      $bundles[$config['bundle']] = $config;
+    }
+  }
+  return $bundles;
+}
+
+function _pool_tournament_get_bracket_id($node) {
+  if (isset($node->field_bracket_manager_id[LANGUAGE_NONE][0]['value'])) {
+    return (int) $node->field_bracket_manager_id[LANGUAGE_NONE][0]['value'];
+  }
+  return 0;
+}
