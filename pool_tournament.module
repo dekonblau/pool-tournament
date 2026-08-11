@@ -345,6 +345,33 @@ function pool_tournament_menu() {
     'type'             => MENU_LOCAL_ACTION,
     'file'             => 'includes/pool_tournament.admin.inc',
   );
+  // Per-bundle admin page, one literal path per existing bundle. Field UI
+  // reads entity_info's bundle 'admin'.'path' key literally (it does not
+  // do wildcard matching when generating its own "Manage fields" / "Manage
+  // displays" tabs — see field_ui_menu()), so each bundle needs its own
+  // real, non-wildcard menu item here for those tabs to attach to instead
+  // of collapsing onto the bundle list page above.
+  foreach (_pool_tournament_bundle_list('player.bundle') as $bundle => $config) {
+    $items['admin/structure/player-bundle/' . $bundle] = array(
+      'title'            => isset($config['label']) ? $config['label'] : $bundle,
+      'page callback'    => 'backdrop_get_form',
+      'page arguments'   => array('pool_tournament_bundle_form', 'player.bundle', $bundle),
+      'access arguments' => array('administer pool tournament'),
+      'file'             => 'includes/pool_tournament.admin.inc',
+    );
+    $items['admin/structure/player-bundle/' . $bundle . '/edit'] = array(
+      'title'  => 'Edit',
+      'type'   => MENU_DEFAULT_LOCAL_TASK,
+    );
+    $items['admin/structure/player-bundle/' . $bundle . '/delete'] = array(
+      'title'            => 'Delete',
+      'page callback'    => 'backdrop_get_form',
+      'page arguments'   => array('pool_tournament_bundle_delete_form', 'player.bundle', $bundle),
+      'access arguments' => array('administer pool tournament'),
+      'type'             => MENU_LOCAL_TASK,
+      'file'             => 'includes/pool_tournament.admin.inc',
+    );
+  }
 
   // ── Reference entity routes (player_type, game_type, tournament_type, venue) ─
   $ref_entities = array(
@@ -417,6 +444,30 @@ function pool_tournament_menu() {
       'type'             => MENU_LOCAL_ACTION,
       'file'             => 'includes/pool_tournament.admin.inc',
     );
+    // Per-bundle admin page, one literal path per existing bundle (see the
+    // equivalent player-bundle comment above for why this is required for
+    // Field UI's tabs to attach correctly).
+    foreach (_pool_tournament_bundle_list($c) as $bundle => $bundle_config) {
+      $items[$admin_base . '/' . $bundle] = array(
+        'title'            => isset($bundle_config['label']) ? $bundle_config['label'] : $bundle,
+        'page callback'    => 'backdrop_get_form',
+        'page arguments'   => array('pool_tournament_bundle_form', $c, $bundle),
+        'access arguments' => array('administer pool tournament'),
+        'file'             => 'includes/pool_tournament.admin.inc',
+      );
+      $items[$admin_base . '/' . $bundle . '/edit'] = array(
+        'title'  => 'Edit',
+        'type'   => MENU_DEFAULT_LOCAL_TASK,
+      );
+      $items[$admin_base . '/' . $bundle . '/delete'] = array(
+        'title'            => 'Delete',
+        'page callback'    => 'backdrop_get_form',
+        'page arguments'   => array('pool_tournament_bundle_delete_form', $c, $bundle),
+        'access arguments' => array('administer pool tournament'),
+        'type'             => MENU_LOCAL_TASK,
+        'file'             => 'includes/pool_tournament.admin.inc',
+      );
+    }
   }
 
   return $items;
