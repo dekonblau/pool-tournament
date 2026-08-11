@@ -288,10 +288,9 @@ function pool_tournament_menu() {
   $items['player/add/%pool_tournament_player_bundle'] = array(
     'title callback'   => 'pool_tournament_player_add_title',
     'title arguments'  => array(2),
-    'page callback'    => 'backdrop_get_form',
-    'page arguments'   => array('pool_tournament_player_form', 2),
+    'page callback'    => 'pool_tournament_player_add_form_page',
+    'page arguments'   => array(2),
     'access arguments' => array('manage players'),
-    'file'             => 'includes/pool_tournament.forms.inc',
   );
   $items['player/%pool_tournament_player'] = array(
     'title callback'   => 'entity_class_label',
@@ -510,6 +509,12 @@ function pool_tournament_player_add_page() {
     $items[] = l($info['label'], 'player/add/' . $bundle);
   }
   return theme('item_list', array('items' => $items, 'title' => t('Choose player type')));
+}
+
+function pool_tournament_player_add_form_page($bundle_config) {
+  module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.forms');
+  $player = entity_create('player', array('bundle' => $bundle_config['bundle']));
+  return backdrop_get_form('pool_tournament_player_form', $player);
 }
 
 function pool_tournament_player_add_title($bundle) {
