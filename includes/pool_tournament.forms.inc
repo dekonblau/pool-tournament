@@ -428,7 +428,7 @@ function pool_tournament_tournament_node_form_alter(&$form, &$form_state) {
  * Returns an options array (id => label) for a given entity type.
  */
 function _pool_tournament_entity_options($entity_type) {
-  $entities = entity_load($entity_type);
+  $entities = entity_load_multiple($entity_type);
   $options  = array();
   foreach ($entities as $entity) {
     $options[$entity->id()] = check_plain($entity->label());

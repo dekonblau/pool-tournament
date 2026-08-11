@@ -482,7 +482,7 @@ function pool_tournament_tournaments_page() {
 }
 
 function pool_tournament_player_list_page() {
-  $players = entity_load('player');
+  $players = entity_load_multiple('player');
   $rows    = array();
   foreach ($players as $player) {
     $rows[] = array(
@@ -527,7 +527,7 @@ function pool_tournament_player_view($player) {
 }
 
 function pool_tournament_ref_entity_list_page($entity_type) {
-  $entities = entity_load($entity_type);
+  $entities = entity_load_multiple($entity_type);
   $rows     = array();
   $path_map = array(
     'player_type' => 'player-type', 'game_type' => 'game-type',
