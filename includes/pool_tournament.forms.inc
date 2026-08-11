@@ -155,7 +155,7 @@ function pool_tournament_player_form_submit($form, &$form_state) {
   $player->status     = $form_state['values']['status'];
 
   field_attach_submit('player', $player, $form, $form_state);
-  entity_save('player', $player);
+  $player->save();
 
   backdrop_set_message(t('Player %name saved.', array('%name' => $player->label)));
   $form_state['redirect'] = 'player/' . $player->id();
@@ -176,7 +176,7 @@ function pool_tournament_player_delete_form($form, &$form_state, $player) {
 
 function pool_tournament_player_delete_form_submit($form, &$form_state) {
   $player = $form_state['player'];
-  entity_delete('player', $player->id());
+  $player->delete();
   backdrop_set_message(t('Player %name deleted.', array('%name' => $player->label)));
   $form_state['redirect'] = 'players';
 }
@@ -376,7 +376,7 @@ function pool_tournament_generic_entity_form_submit($form, &$form_state) {
   }
 
   field_attach_submit($entity_type, $entity, $form, $form_state);
-  entity_save($entity_type, $entity);
+  $entity->save();
 
   backdrop_set_message(t('%type %label saved.', array('%type' => $entity_type, '%label' => $entity->label)));
 

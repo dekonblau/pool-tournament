@@ -86,7 +86,7 @@ function pool_tournament_fargo_sync_player($player_id, $query) {
     return FALSE;
   }
 
-  $player = entity_load_single('player', $player_id);
+  $player = entity_load('player', $player_id);
   if (!$player) {
     return FALSE;
   }
@@ -95,6 +95,6 @@ function pool_tournament_fargo_sync_player($player_id, $query) {
   foreach ($mapped as $key => $value) {
     $player->$key = $value;
   }
-  entity_save('player', $player);
+  $player->save();
   return TRUE;
 }

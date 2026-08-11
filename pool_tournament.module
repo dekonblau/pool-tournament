@@ -28,9 +28,8 @@ function pool_tournament_entity_info() {
     'entity keys'      => array('id' => 'player_id', 'bundle' => 'bundle', 'label' => 'label'),
     'bundle keys'      => array('bundle' => 'bundle'),
     'bundles'          => array(),
-    'uri callback'     => 'entity_class_uri',
+    'load hook'        => 'player_records_load',
     'access callback'  => 'pool_tournament_entity_access',
-    'label callback'   => 'entity_class_label',
     'module'           => 'pool_tournament',
     'view modes'       => array(
       'full'    => array('label' => t('Full'), 'custom settings' => FALSE),
@@ -48,9 +47,8 @@ function pool_tournament_entity_info() {
     'entity keys'      => array('id' => 'player_type_id', 'bundle' => 'bundle', 'label' => 'label'),
     'bundle keys'      => array('bundle' => 'bundle'),
     'bundles'          => array(),
-    'uri callback'     => 'entity_class_uri',
+    'load hook'        => 'player_type_records_load',
     'access callback'  => 'pool_tournament_entity_access',
-    'label callback'   => 'entity_class_label',
     'module'           => 'pool_tournament',
   );
 
@@ -64,9 +62,8 @@ function pool_tournament_entity_info() {
     'entity keys'      => array('id' => 'game_type_id', 'bundle' => 'bundle', 'label' => 'label'),
     'bundle keys'      => array('bundle' => 'bundle'),
     'bundles'          => array(),
-    'uri callback'     => 'entity_class_uri',
+    'load hook'        => 'game_type_records_load',
     'access callback'  => 'pool_tournament_entity_access',
-    'label callback'   => 'entity_class_label',
     'module'           => 'pool_tournament',
   );
 
@@ -80,9 +77,8 @@ function pool_tournament_entity_info() {
     'entity keys'      => array('id' => 'tournament_type_id', 'bundle' => 'bundle', 'label' => 'label'),
     'bundle keys'      => array('bundle' => 'bundle'),
     'bundles'          => array(),
-    'uri callback'     => 'entity_class_uri',
+    'load hook'        => 'tournament_type_records_load',
     'access callback'  => 'pool_tournament_entity_access',
-    'label callback'   => 'entity_class_label',
     'module'           => 'pool_tournament',
   );
 
@@ -96,9 +92,8 @@ function pool_tournament_entity_info() {
     'entity keys'      => array('id' => 'venue_id', 'bundle' => 'bundle', 'label' => 'label'),
     'bundle keys'      => array('bundle' => 'bundle'),
     'bundles'          => array(),
-    'uri callback'     => 'entity_class_uri',
+    'load hook'        => 'venue_records_load',
     'access callback'  => 'pool_tournament_entity_access',
-    'label callback'   => 'entity_class_label',
     'module'           => 'pool_tournament',
   );
 
@@ -293,7 +288,7 @@ function pool_tournament_menu() {
     'access arguments' => array('manage players'),
   );
   $items['player/%pool_tournament_player'] = array(
-    'title callback'   => 'entity_class_label',
+    'title callback'   => 'pool_tournament_entity_label',
     'title arguments'  => array(1),
     'page callback'    => 'pool_tournament_player_view',
     'page arguments'   => array(1),
@@ -391,7 +386,7 @@ function pool_tournament_menu() {
     );
     // View/edit/delete.
     $items[$p . '/%pool_tournament_' . str_replace('-', '_', $p)] = array(
-      'title callback'   => 'entity_class_label',
+      'title callback'   => 'pool_tournament_entity_label',
       'title arguments'  => array(1),
       'page callback'    => 'pool_tournament_ref_entity_view',
       'page arguments'   => array($entity_type, 1),
@@ -432,16 +427,23 @@ function pool_tournament_menu() {
 // ---------------------------------------------------------------------------
 
 function pool_tournament_player_load($player_id) {
-  return entity_load_single('player', $player_id);
+  return entity_load('player', $player_id);
 }
 function pool_tournament_player_bundle_load($bundle) {
   $config = config_get('player.bundle.' . $bundle);
   return $config ?: FALSE;
 }
-function pool_tournament_player_type_load($id) { return entity_load_single('player_type', $id); }
-function pool_tournament_game_type_load($id)   { return entity_load_single('game_type',   $id); }
-function pool_tournament_tournament_type_load($id) { return entity_load_single('tournament_type', $id); }
-function pool_tournament_venue_load($id)       { return entity_load_single('venue', $id); }
+function pool_tournament_player_type_load($id) { return entity_load('player_type', $id); }
+function pool_tournament_game_type_load($id)   { return entity_load('game_type',   $id); }
+function pool_tournament_tournament_type_load($id) { return entity_load('tournament_type', $id); }
+function pool_tournament_venue_load($id)       { return entity_load('venue', $id); }
+
+/**
+ * Menu title callback / generic label getter for our entity classes.
+ */
+function pool_tournament_entity_label($entity) {
+  return $entity->label();
+}
 
 // ---------------------------------------------------------------------------
 // Page callbacks
