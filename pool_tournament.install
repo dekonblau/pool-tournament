@@ -279,6 +279,35 @@ function _pool_tournament_create_tournament_fields() {
 }
 
 /**
+ * Delete stale bundle-admin menu links so Field UI's tabs reattach correctly.
+ *
+ * The bundle admin pages (admin/structure/*-bundle/<bundle>) didn't exist as
+ * real menu items until this release, so Field UI's "Manage fields" / "Manage
+ * displays" tabs, and this module's own per-bundle Edit/Delete tabs, all
+ * pointed at the wrong parent in the admin menu tree. A plain menu_rebuild()
+ * is not enough to fix this on a site that ran the earlier, broken menu
+ * structure: Backdrop reuses existing menu_links rows' parent (plid) across
+ * a rebuild rather than recomputing it when a path's intended parent
+ * changes, so the stale rows have to be deleted first to force Backdrop to
+ * recreate them with the correct parent.
+ */
+function pool_tournament_update_1000() {
+  $bases = array(
+    'admin/structure/player-bundle',
+    'admin/structure/player-type-bundle',
+    'admin/structure/game-type-bundle',
+    'admin/structure/tournament-type-bundle',
+    'admin/structure/venue-bundle',
+  );
+  foreach ($bases as $base) {
+    db_delete('menu_links')
+      ->condition('link_path', $base . '/%', 'LIKE')
+      ->execute();
+  }
+  menu_rebuild();
+}
+
+/**
  * Implements hook_uninstall().
  */
 function pool_tournament_uninstall() {
