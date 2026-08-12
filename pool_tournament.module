@@ -406,10 +406,9 @@ function pool_tournament_menu() {
     // Add specific bundle.
     $items[$p . '/add/%'] = array(
       'title'            => 'Add ' . $p,
-      'page callback'    => 'backdrop_get_form',
-      'page arguments'   => array('pool_tournament_generic_entity_form', $entity_type, 2, $k, $p . 's'),
+      'page callback'    => 'pool_tournament_ref_entity_add_form_page',
+      'page arguments'   => array($entity_type, 2, $k, $p . 's'),
       'access arguments' => array('manage pool entities'),
-      'file'             => 'includes/pool_tournament.forms.inc',
     );
     // View/edit/delete.
     $items[$p . '/%pool_tournament_' . str_replace('-', '_', $p)] = array(
@@ -618,6 +617,18 @@ function pool_tournament_ref_entity_add_page($entity_type, $path) {
 
 function pool_tournament_ref_entity_view($entity_type, $entity) {
   return entity_view($entity_type, array($entity->id() => $entity), 'full');
+}
+
+/**
+ * Page callback for <path>/add/%bundle. Creates a new entity of the given
+ * bundle before handing off to the generic entity form, which expects an
+ * entity object -- the raw bundle machine name string from the URL is not
+ * enough on its own (same shim needed for player/add/%bundle).
+ */
+function pool_tournament_ref_entity_add_form_page($entity_type, $bundle, $id_key, $cancel_path) {
+  module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.forms');
+  $entity = entity_create($entity_type, array('bundle' => $bundle));
+  return backdrop_get_form('pool_tournament_generic_entity_form', $entity_type, $entity, $id_key, $cancel_path);
 }
 
 // ---------------------------------------------------------------------------
