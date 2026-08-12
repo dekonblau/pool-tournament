@@ -304,14 +304,33 @@ function pool_tournament_generic_entity_form($form, &$form_state, $entity_type, 
   }
 
   if ($entity_type === 'player_type' && isset($entity->players_per_side)) {
-    $form['players_per_side'] = array(
-      '#type'          => 'number',
-      '#title'         => t('Players per side'),
-      '#default_value' => $entity->players_per_side,
-      '#min'           => 1,
-      '#max'           => 99,
-      '#required'      => TRUE,
-    );
+    $fixed = _pool_tournament_player_type_fixed_players_per_side($entity->bundle);
+    if ($fixed !== NULL) {
+      // Singles and the partners family: the count is implied by the
+      // bundle itself, so there's nothing for the admin to decide here.
+      $form['players_per_side_display'] = array(
+        '#type'   => 'item',
+        '#title'  => t('Players per side'),
+        '#markup' => $fixed,
+      );
+      $form['players_per_side'] = array(
+        '#type'  => 'value',
+        '#value' => $fixed,
+      );
+    }
+    else {
+      // Team (and any future variable-size bundle): the admin must say
+      // how big the team is, and it has to be more than a pair.
+      $form['players_per_side'] = array(
+        '#type'          => 'number',
+        '#title'         => t('Players per side'),
+        '#description'   => t('Team size. Must be greater than 2 -- use Partners for 2-player sides.'),
+        '#default_value' => $entity->players_per_side > 2 ? $entity->players_per_side : '',
+        '#min'           => 3,
+        '#max'           => 99,
+        '#required'      => TRUE,
+      );
+    }
   }
 
   if ($entity_type === 'venue') {
@@ -423,6 +442,22 @@ function pool_tournament_tournament_node_form_alter(&$form, &$form_state) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns the fixed players-per-side count implied by a player_type bundle,
+ * or NULL if the bundle's team size varies and must be entered by the admin.
+ */
+function _pool_tournament_player_type_fixed_players_per_side($bundle) {
+  $fixed = array(
+    'singles'               => 1,
+    'partners'               => 2,
+    'partners_general'       => 2,
+    'partners_mixed'         => 2,
+    'partners_scotch'        => 2,
+    'partners_mixed_scotch'  => 2,
+  );
+  return isset($fixed[$bundle]) ? $fixed[$bundle] : NULL;
+}
 
 /**
  * Returns an options array (id => label) for a given entity type.
