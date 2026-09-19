@@ -10,6 +10,7 @@ class Player extends Entity {
   public $label;
   public $uid;
   public $member_id;
+  public $membership_id;
   public $fargo_rating;
   public $robustness;
   public $location;

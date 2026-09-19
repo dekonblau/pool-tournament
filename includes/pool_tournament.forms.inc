@@ -40,6 +40,12 @@ function pool_tournament_player_form($form, &$form_state, $player) {
     '#default_value' => $player->member_id,
     '#description'   => t('Fargo member ID (readableId). Leave blank and use the lookup below to auto-populate.'),
   );
+  $form['fargo']['membership_id'] = array(
+    '#type'          => 'textfield',
+    '#title'         => t('Membership ID'),
+    '#default_value' => $player->membership_id,
+    '#description'   => t('Fargo membershipId -- a separate identifier from Member ID.'),
+  );
   $form['fargo']['fargo_rating'] = array(
     '#type'          => 'textfield',
     '#title'         => t('Fargo Rating'),
@@ -61,6 +67,44 @@ function pool_tournament_player_form($form, &$form_state, $player) {
     '#submit'      => array('pool_tournament_player_fargo_lookup_submit'),
     '#limit_validation_errors' => array(array('label'), array('member_id')),
   );
+
+  // A query like a common last name can match more than one person (e.g.
+  // "Kevin Stanelle" matching both a Sr. and a Jr.) -- when that happens,
+  // pool_tournament_player_fargo_lookup_submit() stashes every match here
+  // instead of guessing, and this table lets the admin pick the right one.
+  if (!empty($form_state['fargo_candidates'])) {
+    $options = array();
+    foreach ($form_state['fargo_candidates'] as $i => $candidate) {
+      $options[$i] = array(
+        'name'          => trim($candidate['firstName'] . ' ' . $candidate['lastName']),
+        'location'      => isset($candidate['location']) ? $candidate['location'] : '',
+        'rating'        => isset($candidate['effectiveRating']) ? $candidate['effectiveRating'] : '',
+        'robustness'    => isset($candidate['robustness']) ? $candidate['robustness'] : '',
+        'member_id'     => isset($candidate['readableId']) ? $candidate['readableId'] : '',
+        'membership_id' => isset($candidate['membershipId']) ? $candidate['membershipId'] : '',
+      );
+    }
+    $form['fargo']['fargo_candidates'] = array(
+      '#type'     => 'tableselect',
+      '#header'   => array(
+        'name'          => t('Name'),
+        'location'      => t('Location'),
+        'rating'        => t('Rating'),
+        'robustness'    => t('Robustness'),
+        'member_id'     => t('Member ID'),
+        'membership_id' => t('Membership ID'),
+      ),
+      '#options'  => $options,
+      '#multiple' => FALSE,
+      '#empty'    => t('No matches.'),
+    );
+    $form['fargo']['fargo_select'] = array(
+      '#type'        => 'submit',
+      '#value'       => t('Use selected match'),
+      '#submit'      => array('pool_tournament_player_fargo_select_submit'),
+      '#limit_validation_errors' => array(array('fargo_candidates')),
+    );
+  }
 
   // Attach field widgets (Field API fields).
   field_attach_form('player', $player, $form, $form_state);
@@ -86,7 +130,9 @@ function pool_tournament_player_form($form, &$form_state, $player) {
 }
 
 /**
- * Fargo lookup button submit — populates fields from fargorate.com.
+ * Fargo lookup button submit — populates fields from fargorate.com, or
+ * presents a selectable list when the query matches more than one person
+ * (e.g. a father and son sharing a name).
  */
 function pool_tournament_player_fargo_lookup_submit($form, &$form_state) {
   module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.fargo');
@@ -101,26 +147,70 @@ function pool_tournament_player_fargo_lookup_submit($form, &$form_state) {
     return;
   }
 
-  $fargo = pool_tournament_fargo_lookup($query);
-  if (!$fargo) {
+  $results = pool_tournament_fargo_lookup_all($query);
+  unset($form_state['fargo_candidates']);
+
+  if (empty($results)) {
     backdrop_set_message(t('No Fargo profile found for %q.', array('%q' => $query)), 'warning');
-    $form_state['rebuild'] = TRUE;
-    return;
+  }
+  elseif (count($results) === 1) {
+    _pool_tournament_fargo_apply_candidate($results[0], $form_state);
+  }
+  else {
+    // More than one match -- don't guess, let the admin pick.
+    $form_state['fargo_candidates'] = $results;
+    backdrop_set_message(t('@count Fargo profiles found for %q. Select the correct one below.',
+      array('@count' => count($results), '%q' => $query)));
   }
 
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * "Use selected match" button submit — applies whichever row was picked
+ * from the candidate table built in pool_tournament_player_form().
+ */
+function pool_tournament_player_fargo_select_submit($form, &$form_state) {
+  // #multiple is FALSE on the tableselect, so it renders as radios and
+  // submits the single selected row key as a plain scalar -- not the
+  // checkbox-style {key: key-or-0} array a #multiple tableselect would
+  // submit. Checked with !== '' rather than empty()/isset() alone since
+  // index 0 (a legitimate row) is falsy.
+  $index = isset($form_state['values']['fargo_candidates']) && $form_state['values']['fargo_candidates'] !== ''
+    ? $form_state['values']['fargo_candidates']
+    : NULL;
+
+  if ($index === NULL || !isset($form_state['fargo_candidates'][$index])) {
+    backdrop_set_message(t('Select one of the matches before continuing.'), 'warning');
+  }
+  else {
+    _pool_tournament_fargo_apply_candidate($form_state['fargo_candidates'][$index], $form_state);
+  }
+
+  unset($form_state['fargo_candidates']);
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Copies a single Fargo API record onto the form values and confirms it.
+ *
+ * Shared by the lookup submit (single-match case) and the candidate-table
+ * select submit (multi-match case) so both paths populate identically.
+ */
+function _pool_tournament_fargo_apply_candidate(array $fargo, array &$form_state) {
   $mapped = pool_tournament_fargo_map_to_player($fargo);
   foreach ($mapped as $field => $value) {
     $form_state['values'][$field] = $value;
   }
-  backdrop_set_message(t('Fargo profile found: @name, @loc, rating @r, robustness @rb.',
+  backdrop_set_message(t('Fargo profile found: @name, @loc, rating @r, robustness @rb, membership @mid.',
     array(
-      '@name' => $fargo['firstName'] . ' ' . $fargo['lastName'],
+      '@name' => trim($fargo['firstName'] . ' ' . $fargo['lastName']),
       '@loc'  => $mapped['location'],
       '@r'    => $mapped['fargo_rating'],
       '@rb'   => $mapped['robustness'],
+      '@mid'  => $mapped['membership_id'],
     )
   ));
-  $form_state['rebuild'] = TRUE;
 }
 
 /**
@@ -154,6 +244,7 @@ function pool_tournament_player_form_submit($form, &$form_state) {
   $player->label      = $form_state['values']['label'];
   $player->uid        = $form_state['values']['uid'];
   $player->member_id  = $form_state['values']['member_id'];
+  $player->membership_id = $form_state['values']['membership_id'];
   $player->fargo_rating = $form_state['values']['fargo_rating'];
   $player->robustness = $form_state['values']['robustness'];
   $player->location   = $form_state['values']['location'];
