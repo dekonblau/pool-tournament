@@ -44,7 +44,7 @@ function pool_tournament_player_form($form, &$form_state, $player) {
     '#type'          => 'textfield',
     '#title'         => t('Membership ID'),
     '#default_value' => $player->membership_id,
-    '#description'   => t('Fargo membershipId -- a separate identifier from Member ID.'),
+    '#description'   => t("Fargo membershipId -- tied to a specific sanctioning body/league, not the player globally. Can't be used to search Fargo Rate; record-keeping only."),
   );
   $form['fargo']['fargo_rating'] = array(
     '#type'          => 'textfield',

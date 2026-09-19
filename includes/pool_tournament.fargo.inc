@@ -87,9 +87,14 @@ function pool_tournament_fargo_lookup_by_id($member_id) {
  */
 function pool_tournament_fargo_map_to_player(array $fargo_data) {
   return array(
+    // readableId is the player's global FargoRate identifier -- usable as
+    // the query itself against this same indexsearch endpoint.
     'member_id'     => isset($fargo_data['readableId'])      ? $fargo_data['readableId']      : NULL,
-    // membershipId is a distinct identifier from readableId/member_id --
-    // not the same value, both returned by the API.
+    // membershipId identifies a membership with a specific sanctioning body
+    // (e.g. a particular pool league), not the player globally -- unlike
+    // readableId, it is NOT a valid query against this endpoint (confirmed:
+    // querying by membershipId returns no results, querying by readableId
+    // does). Captured for record-keeping only.
     'membership_id' => isset($fargo_data['membershipId'])    ? $fargo_data['membershipId']     : NULL,
     // "rating" is not what fargorate.com's own UI (fairmatch.fargorate.com)
     // displays or what dashboard.fargorate.com's player page shows as the
