@@ -198,6 +198,11 @@ function pool_tournament_player_fargo_select_submit($form, &$form_state) {
  * select submit (multi-match case) so both paths populate identically.
  */
 function _pool_tournament_fargo_apply_candidate(array $fargo, array &$form_state) {
+  // Each button click is its own HTTP request/PHP process, so fargo.inc
+  // being loaded during an earlier "Look up" submission doesn't carry over
+  // to a later "Use selected match" submission -- load it here rather than
+  // relying on every caller to remember to.
+  module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.fargo');
   $mapped = pool_tournament_fargo_map_to_player($fargo);
   foreach ($mapped as $field => $value) {
     $form_state['values'][$field] = $value;
