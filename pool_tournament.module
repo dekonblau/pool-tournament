@@ -290,7 +290,7 @@ function pool_tournament_menu() {
   $items['player/%pool_tournament_player'] = array(
     'title callback'   => 'pool_tournament_entity_label',
     'title arguments'  => array(1),
-    'page callback'    => 'pool_tournament_player_view',
+    'page callback'    => 'pool_tournament_player_view_page',
     'page arguments'   => array(1),
     'access callback'  => 'pool_tournament_entity_access',
     'access arguments' => array('view', 1),
@@ -574,8 +574,18 @@ function pool_tournament_player_add_title($bundle) {
   return t('Add @type player', array('@type' => isset($config['label']) ? $config['label'] : $bundle));
 }
 
-function pool_tournament_player_view($player) {
-  return entity_view('player', array($player->id() => $player), 'full');
+// Named _view_page(), not _view() -- EntityPlusController::buildContent()
+// auto-invokes any function named {module}_{entity_type}_view($entity,
+// $view_mode, $langcode) as a hook (module_invoke_all($entityType . '_view',
+// ...)). A function named pool_tournament_player_view() collided with that
+// convention: viewing a player called entity_view(), which invoked this
+// function again as the "hook", which called entity_view() again --
+// unbounded recursion (confirmed: ballooned to 3GB+ RSS before being killed).
+function pool_tournament_player_view_page($player) {
+  // Backdrop's entity_view() takes the entity object directly
+  // (EntityInterface $entity, $view_mode) -- not the Drupal-7-Entity-API
+  // style entity_view($type, array($id => $entity), $view_mode).
+  return entity_view($player, 'full');
 }
 
 function pool_tournament_ref_entity_list_page($entity_type) {
@@ -616,7 +626,11 @@ function pool_tournament_ref_entity_add_page($entity_type, $path) {
 }
 
 function pool_tournament_ref_entity_view($entity_type, $entity) {
-  return entity_view($entity_type, array($entity->id() => $entity), 'full');
+  // Same entity_view() signature fix as pool_tournament_player_view_page().
+  // No naming-collision risk here (unlike that function) since
+  // "ref_entity_view" doesn't match {module}_{entity_type}_view for any of
+  // player_type/game_type/tournament_type/venue.
+  return entity_view($entity, 'full');
 }
 
 /**
