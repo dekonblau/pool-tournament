@@ -88,6 +88,19 @@ function pool_tournament_schema() {
     'indexes' => array('bundle' => array('bundle')),
   );
 
+  // Per-tournament properties that don't fit Field API's flat storage --
+  // one row per tournament node, real FK to node.nid. Currently just
+  // team_size, which only applies when the tournament's player_type
+  // resolves to bundle 'team' (see pool_tournament_tournament_team_size_validate()).
+  $schema['pool_tournament_tournament_extra'] = array(
+    'description' => 'Extra per-tournament properties keyed by node ID.',
+    'fields' => array(
+      'nid'       => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Tournament node ID.'),
+      'team_size' => array('type' => 'int', 'size' => 'tiny', 'unsigned' => TRUE, 'not null' => FALSE, 'default' => NULL, 'description' => 'Required team size; only meaningful when player_type bundle is team.'),
+    ),
+    'primary key' => array('nid'),
+  );
+
   // Many-to-many: player preferences (game_type, player_type, tournament_type, venue).
   $schema['pool_tournament_player_preference'] = array(
     'description' => 'Player tournament preference selections.',
@@ -305,6 +318,17 @@ function pool_tournament_update_1000() {
       ->execute();
   }
   menu_rebuild();
+}
+
+/**
+ * Create pool_tournament_tournament_extra for sites installed before it
+ * was added to the schema.
+ */
+function pool_tournament_update_1001() {
+  if (!db_table_exists('pool_tournament_tournament_extra')) {
+    $schema = pool_tournament_schema();
+    db_create_table('pool_tournament_tournament_extra', $schema['pool_tournament_tournament_extra']);
+  }
 }
 
 /**

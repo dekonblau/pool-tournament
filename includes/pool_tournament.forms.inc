@@ -319,16 +319,18 @@ function pool_tournament_generic_entity_form($form, &$form_state, $entity_type, 
       );
     }
     else {
-      // Team (and any future variable-size bundle): the admin must say
-      // how big the team is, and it has to be more than a pair.
+      // Team: size is no longer a property of the player_type instance --
+      // different tournaments using the Team format can want different
+      // sizes, so it's entered per-tournament instead (see the tournament
+      // node's "Team size" field / pool_tournament_tournament_extra).
+      $form['players_per_side_display'] = array(
+        '#type'   => 'item',
+        '#title'  => t('Players per side'),
+        '#markup' => t("Determined per tournament (see the tournament's Team size field)."),
+      );
       $form['players_per_side'] = array(
-        '#type'          => 'number',
-        '#title'         => t('Players per side'),
-        '#description'   => t('Team size. Must be greater than 2 -- use Partners for 2-player sides.'),
-        '#default_value' => $entity->players_per_side > 2 ? $entity->players_per_side : '',
-        '#min'           => 3,
-        '#max'           => 99,
-        '#required'      => TRUE,
+        '#type'  => 'value',
+        '#value' => $entity->players_per_side ?: 1,
       );
     }
   }
@@ -436,6 +438,60 @@ function pool_tournament_tournament_node_form_alter(&$form, &$form_state) {
         '#default_value' => $current,
       );
     }
+  }
+
+  // Team size lives in pool_tournament_tournament_extra, not a Field API
+  // field (see _pool_tournament_save_tournament_extra()) -- only meaningful
+  // when the selected player_type resolves to bundle 'team', enforced in
+  // pool_tournament_tournament_team_size_validate() below rather than with
+  // client-side #states, since the player_type select's options are entity
+  // IDs, not bundle names, so there's no static value to key #states off of.
+  $default_team_size = NULL;
+  if (!empty($form['#node']->nid)) {
+    $default_team_size = db_select('pool_tournament_tournament_extra', 'e')
+      ->fields('e', array('team_size'))
+      ->condition('nid', $form['#node']->nid)
+      ->execute()
+      ->fetchField();
+  }
+  $form['team_size'] = array(
+    '#type'          => 'number',
+    '#title'         => t('Team size'),
+    '#description'   => t('Only used when Player Type is Team. Must be greater than 2.'),
+    '#default_value' => $default_team_size ?: '',
+    '#weight'        => isset($form['field_player_type_id']['#weight']) ? $form['field_player_type_id']['#weight'] + 1 : 0,
+  );
+  $form['#validate'][] = 'pool_tournament_tournament_team_size_validate';
+}
+
+/**
+ * Validate handler for the tournament node form's team_size field.
+ *
+ * Requires a value > 2 when the selected player_type's bundle is 'team';
+ * clears any submitted value otherwise so a stale number left over from a
+ * previous edit doesn't get persisted for a non-team tournament.
+ */
+function pool_tournament_tournament_team_size_validate($form, &$form_state) {
+  $player_type_id = isset($form_state['values']['field_player_type_id'][LANGUAGE_NONE][0]['value'])
+    ? $form_state['values']['field_player_type_id'][LANGUAGE_NONE][0]['value']
+    : NULL;
+
+  $is_team = FALSE;
+  if (!empty($player_type_id)) {
+    $player_type = entity_load('player_type', $player_type_id);
+    if ($player_type && $player_type->bundle() === 'team') {
+      $is_team = TRUE;
+    }
+  }
+
+  if ($is_team) {
+    $size = isset($form_state['values']['team_size']) ? (int) $form_state['values']['team_size'] : 0;
+    if ($size <= 2) {
+      form_set_error('team_size', t('Team size must be greater than 2 for a Team-format tournament.'));
+    }
+  }
+  else {
+    $form_state['values']['team_size'] = NULL;
   }
 }
 

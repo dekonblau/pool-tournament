@@ -674,6 +674,7 @@ function pool_tournament_node_insert($node) {
   if ($node->type !== 'tournament') {
     return;
   }
+  _pool_tournament_save_tournament_extra($node);
   module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.bracket');
   $result = pool_tournament_bracket_create_tournament($node->title);
   if ($result && !empty($result['id'])) {
@@ -702,6 +703,7 @@ function pool_tournament_node_update($node) {
   if ($node->type !== 'tournament') {
     return;
   }
+  _pool_tournament_save_tournament_extra($node);
   $bid = _pool_tournament_get_bracket_id($node);
   if (!$bid) {
     return;
@@ -717,12 +719,37 @@ function pool_tournament_node_delete($node) {
   if ($node->type !== 'tournament') {
     return;
   }
+  db_delete('pool_tournament_tournament_extra')
+    ->condition('nid', $node->nid)
+    ->execute();
   $bid = _pool_tournament_get_bracket_id($node);
   if (!$bid) {
     return;
   }
   module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.bracket');
   pool_tournament_bracket_delete_tournament($bid);
+}
+
+/**
+ * Upserts the tournament's team_size into pool_tournament_tournament_extra.
+ *
+ * team_size is only meaningful when the tournament's player_type resolves to
+ * bundle 'team' (see pool_tournament_tournament_team_size_validate(), which
+ * clears the submitted value to NULL otherwise) -- stored here rather than
+ * as a Field API field since it's a single scalar with no need for Field
+ * UI/Views integration.
+ */
+function _pool_tournament_save_tournament_extra($node) {
+  // property_exists(), not isset() -- the non-team case legitimately needs
+  // to persist an explicit NULL (clearing a stale team_size from a prior
+  // edit), and isset() treats an explicit NULL the same as "never set".
+  if (!property_exists($node, 'team_size')) {
+    return;
+  }
+  db_merge('pool_tournament_tournament_extra')
+    ->key(array('nid' => $node->nid))
+    ->fields(array('team_size' => $node->team_size ?: NULL))
+    ->execute();
 }
 
 // ---------------------------------------------------------------------------
