@@ -62,10 +62,14 @@ function pool_tournament_fargo_lookup_by_id($member_id) {
  */
 function pool_tournament_fargo_map_to_player(array $fargo_data) {
   return array(
-    'member_id'    => isset($fargo_data['readableId'])   ? $fargo_data['readableId']   : NULL,
-    'fargo_rating' => isset($fargo_data['rating'])       ? $fargo_data['rating']       : NULL,
-    'robustness'   => isset($fargo_data['robustness'])   ? $fargo_data['robustness']   : NULL,
-    'location'     => isset($fargo_data['location'])     ? $fargo_data['location']     : NULL,
+    'member_id'    => isset($fargo_data['readableId'])       ? $fargo_data['readableId']       : NULL,
+    // "rating" is not what fargorate.com's own UI (fairmatch.fargorate.com)
+    // displays or what dashboard.fargorate.com's player page shows as the
+    // player's rating -- that's "effectiveRating". "rating" and
+    // "provisionalRating" are different, lower-level values.
+    'fargo_rating' => isset($fargo_data['effectiveRating'])  ? $fargo_data['effectiveRating']  : NULL,
+    'robustness'   => isset($fargo_data['robustness'])       ? $fargo_data['robustness']       : NULL,
+    'location'     => isset($fargo_data['location'])         ? $fargo_data['location']         : NULL,
   );
 }
 

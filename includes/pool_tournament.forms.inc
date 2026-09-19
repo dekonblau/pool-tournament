@@ -112,8 +112,13 @@ function pool_tournament_player_fargo_lookup_submit($form, &$form_state) {
   foreach ($mapped as $field => $value) {
     $form_state['values'][$field] = $value;
   }
-  backdrop_set_message(t('Fargo profile found: @name, rating @r, robustness @rb.',
-    array('@name' => $fargo['firstName'] . ' ' . $fargo['lastName'], '@r' => $fargo['rating'], '@rb' => $fargo['robustness'])
+  backdrop_set_message(t('Fargo profile found: @name, @loc, rating @r, robustness @rb.',
+    array(
+      '@name' => $fargo['firstName'] . ' ' . $fargo['lastName'],
+      '@loc'  => $mapped['location'],
+      '@r'    => $mapped['fargo_rating'],
+      '@rb'   => $mapped['robustness'],
+    )
   ));
   $form_state['rebuild'] = TRUE;
 }
