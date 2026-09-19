@@ -206,6 +206,12 @@ function _pool_tournament_fargo_apply_candidate(array $fargo, array &$form_state
   $mapped = pool_tournament_fargo_map_to_player($fargo);
   foreach ($mapped as $field => $value) {
     $form_state['values'][$field] = $value;
+    // Textfields (and most widgets) resolve their displayed value from
+    // $form_state['input'] on any rebuild, not from #default_value or
+    // $form_state['values'] -- see form_type_textfield_value() in core.
+    // Without also setting this, the field keeps showing whatever the user
+    // last typed (or nothing) instead of the looked-up Fargo data.
+    $form_state['input'][$field] = $value;
   }
   backdrop_set_message(t('Fargo profile found: @name, @loc, rating @r, robustness @rb, membership @mid.',
     array(
