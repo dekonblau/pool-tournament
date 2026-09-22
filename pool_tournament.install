@@ -456,6 +456,47 @@ function pool_tournament_update_1004() {
 }
 
 /**
+ * Simplify the sanctioning body roster to just BCA and APA -- what small
+ * local venue operators (the actual target users of this app) run, per
+ * the site owner: "almost all will be APA." Removes CSI and ACS, added
+ * in pool_tournament_update_1004(). Clears any tournament node's
+ * reference first so a removal never leaves a dangling FK.
+ */
+function pool_tournament_update_1005() {
+  $to_remove = db_select('pool_tournament_sanctioning_body', 's')
+    ->fields('s', array('sanctioning_body_id'))
+    ->condition('label', array('CSI', 'ACS'), 'IN')
+    ->execute()->fetchCol();
+
+  if (empty($to_remove)) {
+    return;
+  }
+
+  if (db_table_exists('field_data_field_sanctioning_body_id')) {
+    $affected_nids = db_select('field_data_field_sanctioning_body_id', 'f')
+      ->fields('f', array('entity_id'))
+      ->condition('field_sanctioning_body_id_value', $to_remove, 'IN')
+      ->execute()->fetchCol();
+    foreach ($affected_nids as $nid) {
+      db_update('field_data_field_sanctioning_body_id')
+        ->fields(array('field_sanctioning_body_id_value' => NULL))
+        ->condition('entity_id', $nid)
+        ->execute();
+      if (db_table_exists('field_revision_field_sanctioning_body_id')) {
+        db_update('field_revision_field_sanctioning_body_id')
+          ->fields(array('field_sanctioning_body_id_value' => NULL))
+          ->condition('entity_id', $nid)
+          ->execute();
+      }
+    }
+  }
+
+  db_delete('pool_tournament_sanctioning_body')
+    ->condition('sanctioning_body_id', $to_remove, 'IN')
+    ->execute();
+}
+
+/**
  * Implements hook_uninstall().
  */
 function pool_tournament_uninstall() {
