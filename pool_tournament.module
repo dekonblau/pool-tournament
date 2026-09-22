@@ -97,6 +97,21 @@ function pool_tournament_entity_info() {
     'module'           => 'pool_tournament',
   );
 
+  // ── Sanctioning Body ─────────────────────────────────────────────────────
+  $info['sanctioning_body'] = array(
+    'label'            => t('Sanctioning Body'),
+    'entity class'     => 'SanctioningBody',
+    'controller class' => 'EntityPlusController',
+    'base table'       => 'pool_tournament_sanctioning_body',
+    'fieldable'        => TRUE,
+    'entity keys'      => array('id' => 'sanctioning_body_id', 'bundle' => 'bundle', 'label' => 'label'),
+    'bundle keys'      => array('bundle' => 'bundle'),
+    'bundles'          => array(),
+    'load hook'        => 'sanctioning_body_records_load',
+    'access callback'  => 'pool_tournament_entity_access',
+    'module'           => 'pool_tournament',
+  );
+
   return $info;
 }
 
@@ -112,6 +127,7 @@ function pool_tournament_entity_info_alter(&$entity_info) {
     'game_type'       => array('config_prefix' => 'game_type.bundle',       'admin_base' => 'admin/structure/game-type-bundle'),
     'tournament_type' => array('config_prefix' => 'tournament_type.bundle', 'admin_base' => 'admin/structure/tournament-type-bundle'),
     'venue'           => array('config_prefix' => 'venue.bundle',           'admin_base' => 'admin/structure/venue-bundle'),
+    'sanctioning_body' => array('config_prefix' => 'sanctioning_body.bundle', 'admin_base' => 'admin/structure/sanctioning-body-bundle'),
   );
 
   foreach ($definitions as $entity_type => $def) {
@@ -152,6 +168,7 @@ function pool_tournament_autoload_info() {
     'GameType'       => 'entities/GameType.php',
     'TournamentType' => 'entities/TournamentType.php',
     'Venue'          => 'entities/Venue.php',
+    'SanctioningBody' => 'entities/SanctioningBody.php',
   );
 }
 
@@ -169,6 +186,7 @@ function pool_tournament_config_info() {
     'game_type.bundle'       => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
     'tournament_type.bundle' => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
     'venue.bundle'           => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
+    'sanctioning_body.bundle' => array('name_key' => 'bundle', 'label_key' => 'label', 'group' => t('Pool Tournament')),
   );
 }
 
@@ -373,12 +391,13 @@ function pool_tournament_menu() {
     );
   }
 
-  // ── Reference entity routes (player_type, game_type, tournament_type, venue) ─
+  // ── Reference entity routes (player_type, game_type, tournament_type, venue, sanctioning_body) ─
   $ref_entities = array(
     'player_type'     => array('path' => 'player-type',     'title' => 'Player Types',     'config' => 'player_type.bundle',     'id_key' => 'player_type_id'),
     'game_type'       => array('path' => 'game-type',       'title' => 'Game Types',       'config' => 'game_type.bundle',       'id_key' => 'game_type_id'),
     'tournament_type' => array('path' => 'tournament-type', 'title' => 'Tournament Types', 'config' => 'tournament_type.bundle', 'id_key' => 'tournament_type_id'),
     'venue'           => array('path' => 'venue',           'title' => 'Venues',           'config' => 'venue.bundle',           'id_key' => 'venue_id'),
+    'sanctioning_body' => array('path' => 'sanctioning-body', 'title' => 'Sanctioning Bodies', 'config' => 'sanctioning_body.bundle', 'id_key' => 'sanctioning_body_id'),
   );
 
   foreach ($ref_entities as $entity_type => $def) {
@@ -487,6 +506,7 @@ function pool_tournament_player_type_load($id) { return entity_load('player_type
 function pool_tournament_game_type_load($id)   { return entity_load('game_type',   $id); }
 function pool_tournament_tournament_type_load($id) { return entity_load('tournament_type', $id); }
 function pool_tournament_venue_load($id)       { return entity_load('venue', $id); }
+function pool_tournament_sanctioning_body_load($id) { return entity_load('sanctioning_body', $id); }
 
 /**
  * Menu title callback / generic label getter for our entity classes.
@@ -594,6 +614,7 @@ function pool_tournament_ref_entity_list_page($entity_type) {
   $path_map = array(
     'player_type' => 'player-type', 'game_type' => 'game-type',
     'tournament_type' => 'tournament-type', 'venue' => 'venue',
+    'sanctioning_body' => 'sanctioning-body',
   );
   $base = $path_map[$entity_type];
   foreach ($entities as $entity) {
@@ -613,6 +634,7 @@ function pool_tournament_ref_entity_add_page($entity_type, $path) {
   $prefix_map = array(
     'player_type' => 'player_type.bundle', 'game_type' => 'game_type.bundle',
     'tournament_type' => 'tournament_type.bundle', 'venue' => 'venue.bundle',
+    'sanctioning_body' => 'sanctioning_body.bundle',
   );
   $bundles = _pool_tournament_bundle_list($prefix_map[$entity_type]);
   if (count($bundles) === 1) {

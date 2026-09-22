@@ -89,6 +89,20 @@ function pool_tournament_schema() {
     'indexes' => array('bundle' => array('bundle')),
   );
 
+  $schema['pool_tournament_sanctioning_body'] = array(
+    'description' => 'Stores sanctioning_body entities (BCA, CSI, APA, ACS, etc).',
+    'fields' => array(
+      'sanctioning_body_id' => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+      'bundle'       => array('type' => 'varchar', 'length' => 128, 'not null' => TRUE, 'default' => 'sanctioning_body'),
+      'label'        => array('type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''),
+      'description'  => array('type' => 'text', 'not null' => FALSE),
+      'rulebook_url' => array('type' => 'varchar', 'length' => 512, 'not null' => FALSE, 'default' => NULL, 'description' => 'Link to the official rulebook.'),
+      'created'      => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
+    ),
+    'primary key' => array('sanctioning_body_id'),
+    'indexes' => array('bundle' => array('bundle')),
+  );
+
   // Per-tournament properties that don't fit Field API's flat storage --
   // one row per tournament node, real FK to node.nid. Currently just
   // team_size, which only applies when the tournament's player_type
@@ -248,6 +262,21 @@ function _pool_tournament_create_tournament_fields() {
         'widget'      => array('type' => 'number'),
       ),
     ),
+    'field_sanctioning_body_id' => array(
+      'field' => array(
+        'field_name'  => 'field_sanctioning_body_id',
+        'type'        => 'number_integer',
+        'cardinality' => 1,
+      ),
+      'instance' => array(
+        'field_name'  => 'field_sanctioning_body_id',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Sanctioning Body'),
+        'required'    => FALSE,
+        'widget'      => array('type' => 'number'),
+      ),
+    ),
     'field_max_players' => array(
       'field' => array(
         'field_name'  => 'field_max_players',
@@ -344,6 +373,89 @@ function pool_tournament_update_1002() {
 }
 
 /**
+ * Add the sanctioning_body entity type (table, default bundle) and the
+ * field_sanctioning_body_id field on the tournament node.
+ */
+function pool_tournament_update_1003() {
+  if (!db_table_exists('pool_tournament_sanctioning_body')) {
+    $schema = pool_tournament_schema();
+    db_create_table('pool_tournament_sanctioning_body', $schema['pool_tournament_sanctioning_body']);
+  }
+
+  if (!config_get('sanctioning_body.bundle.sanctioning_body')) {
+    config('sanctioning_body.bundle.sanctioning_body')
+      ->set('_config_name', 'sanctioning_body.bundle.sanctioning_body')
+      ->set('bundle', 'sanctioning_body')
+      ->set('label', 'Sanctioning Body')
+      ->save();
+    field_attach_create_bundle('sanctioning_body', 'sanctioning_body');
+  }
+
+  if (!field_info_field('field_sanctioning_body_id')) {
+    field_create_field(array(
+      'field_name'  => 'field_sanctioning_body_id',
+      'type'        => 'number_integer',
+      'cardinality' => 1,
+    ));
+  }
+  if (!field_info_instance('node', 'field_sanctioning_body_id', 'tournament')) {
+    field_create_instance(array(
+      'field_name'  => 'field_sanctioning_body_id',
+      'entity_type' => 'node',
+      'bundle'      => 'tournament',
+      'label'       => t('Sanctioning Body'),
+      'required'    => FALSE,
+      'widget'      => array('type' => 'number'),
+    ));
+  }
+}
+
+/**
+ * Seed the four major US pool sanctioning bodies with links to their
+ * official rules, so the tournament form has real options out of the box.
+ * Idempotent -- safe to run again, skips any label already present.
+ */
+function pool_tournament_update_1004() {
+  $bodies = array(
+    'BCA' => array(
+      'description'  => 'BCA Pool League (BCAPL), operated by CueSports International (CSI). Uses Fargo Rate handicapping and official CSI/BCA rules.',
+      'rulebook_url' => 'https://www.playcsipool.com/bcapl-rules.html',
+    ),
+    'CSI' => array(
+      'description'  => 'CueSports International -- parent organization operating the BCA Pool League and USA Pool League.',
+      'rulebook_url' => 'https://www.playcsipool.com/tournament-regulations.html',
+    ),
+    'APA' => array(
+      'description'  => 'American Poolplayers Association. Uses the proprietary Equalizer handicap system.',
+      'rulebook_url' => 'https://rules.poolplayers.com/',
+    ),
+    'ACS' => array(
+      'description'  => 'American CueSports Alliance. Uses the WPA World Standardized Rules.',
+      'rulebook_url' => 'https://americancuesports.org/world-standardized-rules/',
+    ),
+  );
+
+  $existing = db_select('pool_tournament_sanctioning_body', 's')
+    ->fields('s', array('label'))
+    ->execute()->fetchCol();
+
+  foreach ($bodies as $label => $data) {
+    if (in_array($label, $existing)) {
+      continue;
+    }
+    db_insert('pool_tournament_sanctioning_body')
+      ->fields(array(
+        'bundle'       => 'sanctioning_body',
+        'label'        => $label,
+        'description'  => $data['description'],
+        'rulebook_url' => $data['rulebook_url'],
+        'created'      => REQUEST_TIME,
+      ))
+      ->execute();
+  }
+}
+
+/**
  * Implements hook_uninstall().
  */
 function pool_tournament_uninstall() {
@@ -355,6 +467,7 @@ function pool_tournament_uninstall() {
     'field_player_type_id',
     'field_tournament_type_id',
     'field_venue_id',
+    'field_sanctioning_body_id',
     'field_max_players',
     'field_registration_open',
   );

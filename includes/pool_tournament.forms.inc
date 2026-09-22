@@ -498,6 +498,15 @@ function pool_tournament_generic_entity_form($form, &$form_state, $entity_type, 
     );
   }
 
+  if ($entity_type === 'sanctioning_body') {
+    $form['rulebook_url'] = array(
+      '#type'          => 'url',
+      '#title'         => t('Rulebook URL'),
+      '#default_value' => isset($entity->rulebook_url) ? $entity->rulebook_url : '',
+      '#description'   => t('Link to the official rules/rulebook for this sanctioning body.'),
+    );
+  }
+
   field_attach_form($entity_type, $entity, $form, $form_state);
 
   $form['actions'] = array('#type' => 'actions');
@@ -535,6 +544,9 @@ function pool_tournament_generic_entity_form_submit($form, &$form_state) {
       }
     }
   }
+  if ($entity_type === 'sanctioning_body' && isset($form_state['values']['rulebook_url'])) {
+    $entity->rulebook_url = $form_state['values']['rulebook_url'];
+  }
 
   field_attach_submit($entity_type, $entity, $form, $form_state);
   $entity->save();
@@ -546,6 +558,7 @@ function pool_tournament_generic_entity_form_submit($form, &$form_state) {
     'game_type'       => 'game-type',
     'tournament_type' => 'tournament-type',
     'venue'           => 'venue',
+    'sanctioning_body' => 'sanctioning-body',
   );
   $base = isset($path_map[$entity_type]) ? $path_map[$entity_type] : $entity_type;
   $form_state['redirect'] = $base . '/' . $entity->id();
@@ -565,6 +578,7 @@ function pool_tournament_tournament_node_form_alter(&$form, &$form_state) {
     'field_player_type_id'     => array('entity_type' => 'player_type',     'title' => t('Player Type')),
     'field_tournament_type_id' => array('entity_type' => 'tournament_type', 'title' => t('Tournament Type')),
     'field_venue_id'           => array('entity_type' => 'venue',           'title' => t('Venue')),
+    'field_sanctioning_body_id' => array('entity_type' => 'sanctioning_body', 'title' => t('Sanctioning Body')),
   ) as $field_name => $info) {
     if (isset($form[$field_name])) {
       $options   = array('' => t('- Select -')) + _pool_tournament_entity_options($info['entity_type']);
