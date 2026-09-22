@@ -67,6 +67,20 @@ function pool_tournament_player_form($form, &$form_state, $player) {
     '#submit'      => array('pool_tournament_player_fargo_lookup_submit'),
     '#limit_validation_errors' => array(array('label'), array('member_id')),
   );
+  // A prior lookup/selection leaves Member ID filled in with the found
+  // readableId. Since the lookup submit handler searches by Member ID
+  // first and only falls back to Full name when it's empty, that filled-in
+  // ID quietly takes over every subsequent "Look up" click -- searching
+  // "kevin stanelle" a second time would actually search the specific ID
+  // left over from selecting Sr., returning only Sr. again. This button
+  // clears the found Fargo fields (and any pending candidate table) so a
+  // fresh name search isn't shadowed by a stale ID.
+  $form['fargo']['fargo_clear'] = array(
+    '#type'        => 'submit',
+    '#value'       => t('Clear / new search'),
+    '#submit'      => array('pool_tournament_player_fargo_clear_submit'),
+    '#limit_validation_errors' => array(),
+  );
 
   // A query like a common last name can match more than one person (e.g.
   // "Kevin Stanelle" matching both a Sr. and a Jr.) -- when that happens,
@@ -188,6 +202,25 @@ function pool_tournament_player_fargo_select_submit($form, &$form_state) {
   }
 
   unset($form_state['fargo_candidates']);
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * "Clear / new search" button submit -- resets the found Fargo fields and
+ * any pending candidate table so the next "Look up" click does a fresh
+ * name search instead of being shadowed by a stale Member ID.
+ */
+function pool_tournament_player_fargo_clear_submit($form, &$form_state) {
+  foreach (array('member_id', 'membership_id', 'fargo_rating', 'robustness', 'location') as $field) {
+    $form_state['values'][$field] = '';
+    // Both need clearing, not just values -- see the note in
+    // _pool_tournament_fargo_apply_candidate() on why a rebuilt widget's
+    // displayed value comes from $form_state['input'], not #default_value
+    // or $form_state['values'].
+    $form_state['input'][$field] = '';
+  }
+  unset($form_state['fargo_candidates']);
+  backdrop_set_message(t('Cleared. Enter a new name or member ID and look up again.'));
   $form_state['rebuild'] = TRUE;
 }
 
