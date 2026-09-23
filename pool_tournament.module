@@ -525,7 +525,11 @@ function pool_tournament_entity_label($entity) {
 function pool_tournament_tournaments_page() {
   global $user;
 
-  // Build a Views embed if the view exists, otherwise fall back to a node query.
+  // Build a Views embed if the view exists, otherwise fall back to a node
+  // query. No pool_tournament_upcoming View ships with this module, so in
+  // practice this always falls through to the query below -- which is why
+  // that query, not hook_views_query_alter(), is where preference filtering
+  // actually has to happen for it to do anything.
   if (module_exists('views') && ($view = views_get_view('pool_tournament_upcoming'))) {
     $output = $view->preview('page');
     if (!empty($output)) {
@@ -533,23 +537,48 @@ function pool_tournament_tournaments_page() {
     }
   }
 
-  // Fallback: simple node query.
   $query = db_select('node', 'n')
     ->fields('n', array('nid', 'title'))
     ->condition('n.type', 'tournament')
-    ->condition('n.status', 1)
-    ->orderBy('n.created', 'ASC')
-    ->execute();
+    ->condition('n.status', 1);
+
+  // Filter by the logged-in player's preferences, if any are set.
+  $prefs = array();
+  if ($user->uid) {
+    $player = pool_tournament_player_for_user($user->uid);
+    if ($player) {
+      module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.forms');
+      $prefs = _pool_tournament_player_preferences_load($player->id());
+    }
+  }
+
+  $field_map = array(
+    'game_type'        => 'field_game_type_id',
+    'player_type'      => 'field_player_type_id',
+    'tournament_type'  => 'field_tournament_type_id',
+    'venue'            => 'field_venue_id',
+    'sanctioning_body' => 'field_sanctioning_body_id',
+  );
+  foreach ($field_map as $ptype => $field_name) {
+    if (empty($prefs[$ptype])) {
+      continue;
+    }
+    $alias = $query->leftJoin('field_data_' . $field_name, $field_name,
+      "%alias.entity_id = n.nid AND %alias.entity_type = 'node' AND %alias.deleted = 0");
+    $query->condition($alias . '.' . $field_name . '_value', $prefs[$ptype], 'IN');
+  }
+
+  $result = $query->orderBy('n.created', 'ASC')->execute();
 
   $rows = array();
-  foreach ($query as $row) {
+  foreach ($result as $row) {
     $rows[] = array(l($row->title, 'node/' . $row->nid));
   }
 
   return theme('table', array(
     'header' => array(t('Tournament')),
     'rows'   => $rows,
-    'empty'  => t('No upcoming tournaments.'),
+    'empty'  => t('No upcoming tournaments match your preferences.'),
   ));
 }
 
@@ -716,16 +745,39 @@ function pool_tournament_node_insert($node) {
   if ($result && !empty($result['id'])) {
     // Store the bracket manager ID back on the node.
     $node->field_bracket_manager_id[LANGUAGE_NONE][0]['value'] = $result['id'];
-    // Use db_update to avoid triggering hook_node_update loop.
-    db_update('field_data_field_bracket_manager_id')
-      ->fields(array('field_bracket_manager_id_value' => $result['id']))
-      ->condition('entity_id', $node->nid)
-      ->condition('entity_type', 'node')
+    // db_merge, not db_update -- avoids triggering a hook_node_update loop
+    // the same as db_update would, but actually persists the value. The
+    // field is empty at initial save time (nobody fills it in; it only
+    // ever gets a value here), so no field_data/field_revision row exists
+    // yet for it and db_update() was a silent no-op every single time --
+    // this field has never actually been populated for any tournament.
+    db_merge('field_data_field_bracket_manager_id')
+      ->key(array(
+        'entity_type' => 'node',
+        'entity_id'   => $node->nid,
+        'deleted'     => 0,
+        'language'    => LANGUAGE_NONE,
+        'delta'       => 0,
+      ))
+      ->fields(array(
+        'bundle'                          => $node->type,
+        'revision_id'                     => $node->vid,
+        'field_bracket_manager_id_value'  => $result['id'],
+      ))
       ->execute();
-    db_update('field_revision_field_bracket_manager_id')
-      ->fields(array('field_bracket_manager_id_value' => $result['id']))
-      ->condition('entity_id', $node->nid)
-      ->condition('entity_type', 'node')
+    db_merge('field_revision_field_bracket_manager_id')
+      ->key(array(
+        'entity_type' => 'node',
+        'entity_id'   => $node->nid,
+        'revision_id' => $node->vid,
+        'deleted'     => 0,
+        'language'    => LANGUAGE_NONE,
+        'delta'       => 0,
+      ))
+      ->fields(array(
+        'bundle'                          => $node->type,
+        'field_bracket_manager_id_value'  => $result['id'],
+      ))
       ->execute();
     watchdog('pool_tournament', 'Tournament node @nid synced to bracket manager ID @bid.',
       array('@nid' => $node->nid, '@bid' => $result['id']));
@@ -863,10 +915,11 @@ function pool_tournament_views_query_alter(&$view, &$query) {
   $prefs = _pool_tournament_player_preferences_load($player->id());
 
   $field_map = array(
-    'game_type'       => 'field_data_field_game_type_id',
-    'player_type'     => 'field_data_field_player_type_id',
-    'tournament_type' => 'field_data_field_tournament_type_id',
-    'venue'           => 'field_data_field_venue_id',
+    'game_type'        => 'field_data_field_game_type_id',
+    'player_type'      => 'field_data_field_player_type_id',
+    'tournament_type'  => 'field_data_field_tournament_type_id',
+    'venue'            => 'field_data_field_venue_id',
+    'sanctioning_body' => 'field_data_field_sanctioning_body_id',
   );
 
   foreach ($field_map as $ptype => $table) {

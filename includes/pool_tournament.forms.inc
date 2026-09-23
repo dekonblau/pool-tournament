@@ -371,6 +371,15 @@ function pool_tournament_player_preferences_form($form, &$form_state, $player) {
     '#default_value' => isset($current['venue']) ? $current['venue'] : array(),
   );
 
+  // Sanctioning body preferences.
+  $sanctioning_bodies = _pool_tournament_entity_options('sanctioning_body');
+  $form['sanctioning_bodies'] = array(
+    '#type'          => 'checkboxes',
+    '#title'         => t('Preferred sanctioning bodies'),
+    '#options'       => $sanctioning_bodies,
+    '#default_value' => isset($current['sanctioning_body']) ? $current['sanctioning_body'] : array(),
+  );
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array('#type' => 'submit', '#value' => t('Save preferences'));
 
@@ -387,10 +396,11 @@ function pool_tournament_player_preferences_form_submit($form, &$form_state) {
     ->execute();
 
   $map = array(
-    'game_type'       => $form_state['values']['game_types'],
-    'player_type'     => $form_state['values']['player_types'],
-    'tournament_type' => $form_state['values']['tournament_types'],
-    'venue'           => $form_state['values']['venues'],
+    'game_type'        => $form_state['values']['game_types'],
+    'player_type'      => $form_state['values']['player_types'],
+    'tournament_type'  => $form_state['values']['tournament_types'],
+    'venue'            => $form_state['values']['venues'],
+    'sanctioning_body' => $form_state['values']['sanctioning_bodies'],
   );
 
   $insert = db_insert('pool_tournament_player_preference')
