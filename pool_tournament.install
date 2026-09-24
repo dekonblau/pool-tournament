@@ -73,6 +73,19 @@ function pool_tournament_schema() {
     'indexes' => array('bundle' => array('bundle')),
   );
 
+  // Class-table-inheritance-style extension table -- the Fargo rating
+  // ceiling only means something for the fargo_limit/fargo_limit_handicapped
+  // tournament_type bundles, not for open or the plain handicapped bundle,
+  // so it lives here rather than as a base column shared by every bundle.
+  $schema['pool_tournament_tournament_type_fargo_limit'] = array(
+    'description' => 'Fargo rating ceiling for fargo_limit(_handicapped) tournament_type instances.',
+    'fields' => array(
+      'tournament_type_id'   => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'FK to pool_tournament_tournament_type.'),
+      'fargo_rating_ceiling' => array('type' => 'int', 'not null' => FALSE, 'default' => NULL, 'description' => 'Maximum eligible Fargo effectiveRating.'),
+    ),
+    'primary key' => array('tournament_type_id'),
+  );
+
   $schema['pool_tournament_venue'] = array(
     'description' => 'Stores venue entities.',
     'fields' => array(
@@ -494,6 +507,17 @@ function pool_tournament_update_1005() {
   db_delete('pool_tournament_sanctioning_body')
     ->condition('sanctioning_body_id', $to_remove, 'IN')
     ->execute();
+}
+
+/**
+ * Create pool_tournament_tournament_type_fargo_limit for sites installed
+ * before it was added to the schema.
+ */
+function pool_tournament_update_1006() {
+  if (!db_table_exists('pool_tournament_tournament_type_fargo_limit')) {
+    $schema = pool_tournament_schema();
+    db_create_table('pool_tournament_tournament_type_fargo_limit', $schema['pool_tournament_tournament_type_fargo_limit']);
+  }
 }
 
 /**

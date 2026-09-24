@@ -521,6 +521,30 @@ function pool_tournament_generic_entity_form($form, &$form_state, $entity_type, 
     );
   }
 
+  // Fargo rating ceiling only means something for the two Fargo-based
+  // bundles -- not open, and not the plain (non-Fargo) handicapped bundle.
+  // Lives in pool_tournament_tournament_type_fargo_limit, a class-table-
+  // inheritance-style extension table, not a base column every bundle
+  // carries. Persisted in pool_tournament_generic_entity_form_submit().
+  if ($entity_type === 'tournament_type' && in_array($entity->bundle, array('fargo_limit', 'fargo_limit_handicapped'))) {
+    $ceiling = NULL;
+    if ($entity->id()) {
+      $ceiling = db_select('pool_tournament_tournament_type_fargo_limit', 'f')
+        ->fields('f', array('fargo_rating_ceiling'))
+        ->condition('tournament_type_id', $entity->id())
+        ->execute()
+        ->fetchField();
+    }
+    $form['fargo_rating_ceiling'] = array(
+      '#type'          => 'number',
+      '#title'         => t('Fargo rating ceiling'),
+      '#description'   => t('Maximum eligible Fargo effectiveRating for this tournament type.'),
+      '#default_value' => ($ceiling !== FALSE && $ceiling !== NULL) ? $ceiling : '',
+      '#min'           => 0,
+      '#required'      => TRUE,
+    );
+  }
+
   field_attach_form($entity_type, $entity, $form, $form_state);
 
   $form['actions'] = array('#type' => 'actions');
@@ -564,6 +588,15 @@ function pool_tournament_generic_entity_form_submit($form, &$form_state) {
 
   field_attach_submit($entity_type, $entity, $form, $form_state);
   $entity->save();
+
+  // Needs the entity's own ID, which only exists after save() -- for a
+  // brand-new entity, id() is NULL until this point.
+  if ($entity_type === 'tournament_type' && isset($form_state['values']['fargo_rating_ceiling'])) {
+    db_merge('pool_tournament_tournament_type_fargo_limit')
+      ->key(array('tournament_type_id' => $entity->id()))
+      ->fields(array('fargo_rating_ceiling' => $form_state['values']['fargo_rating_ceiling']))
+      ->execute();
+  }
 
   backdrop_set_message(t('%type %label saved.', array('%type' => $entity_type, '%label' => $entity->label)));
 
