@@ -69,3 +69,69 @@ function pool_tournament_tournament_node_params($node) {
   }
   return $params;
 }
+
+/**
+ * Checks a player's Fargo eligibility for a fargo_limit(_handicapped)
+ * tournament type, via a fresh live lookup (never the player's stored
+ * rating -- it could be stale).
+ *
+ * @param object $player
+ *   A player entity.
+ * @param object $tournament_type
+ *   A tournament_type entity; expected bundle fargo_limit or
+ *   fargo_limit_handicapped, but works off whatever ceiling (if any) is
+ *   actually stored for it rather than checking the bundle itself.
+ *
+ * @return array|FALSE
+ *   FALSE if the Fargo service itself is unreachable -- see
+ *   _pool_tournament_fargo_request(); callers running a batch across many
+ *   players must treat this as a hard-stop-the-whole-batch signal, not a
+ *   single-player failure, since a down service can't verify anyone.
+ *   Otherwise an array:
+ *     - 'status': 'eligible', 'ineligible', or 'skip'. 'skip' covers both
+ *       "no member_id on file" and "member_id on file, but Fargo has no
+ *       record for it" -- either way eligibility can't be verified, so
+ *       the player is neither auto-included nor auto-excluded.
+ *     - 'rating': the fresh effectiveRating if found, else NULL.
+ *     - 'ceiling': the tournament type's stored rating ceiling, or NULL
+ *       if none is set.
+ */
+function pool_tournament_fargo_eligibility($player, $tournament_type) {
+  $ceiling = db_select('pool_tournament_tournament_type_fargo_limit', 'f')
+    ->fields('f', array('fargo_rating_ceiling'))
+    ->condition('tournament_type_id', $tournament_type->id())
+    ->execute()
+    ->fetchField();
+  $ceiling = ($ceiling !== FALSE && $ceiling !== NULL) ? (int) $ceiling : NULL;
+
+  if (empty($player->member_id)) {
+    return array('status' => 'skip', 'rating' => NULL, 'ceiling' => $ceiling);
+  }
+
+  module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.fargo');
+  $results = pool_tournament_fargo_lookup_all($player->member_id);
+
+  if ($results === FALSE) {
+    // Service down -- hard stop, not a per-player skip.
+    return FALSE;
+  }
+
+  if (empty($results)) {
+    // A member_id is on file, but Fargo has no record for it -- can't verify.
+    return array('status' => 'skip', 'rating' => NULL, 'ceiling' => $ceiling);
+  }
+
+  $mapped = pool_tournament_fargo_map_to_player($results[0]);
+  $rating = isset($mapped['fargo_rating']) && $mapped['fargo_rating'] !== NULL
+    ? (int) $mapped['fargo_rating'] : NULL;
+
+  if ($rating === NULL || $ceiling === NULL) {
+    return array('status' => 'skip', 'rating' => $rating, 'ceiling' => $ceiling);
+  }
+
+  return array(
+    'status'  => ($rating <= $ceiling) ? 'eligible' : 'ineligible',
+    'rating'  => $rating,
+    'ceiling' => $ceiling,
+  );
+}
