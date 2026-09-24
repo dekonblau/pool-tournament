@@ -552,14 +552,7 @@ function pool_tournament_tournaments_page() {
     }
   }
 
-  $field_map = array(
-    'game_type'        => 'field_game_type_id',
-    'player_type'      => 'field_player_type_id',
-    'tournament_type'  => 'field_tournament_type_id',
-    'venue'            => 'field_venue_id',
-    'sanctioning_body' => 'field_sanctioning_body_id',
-  );
-  foreach ($field_map as $ptype => $field_name) {
+  foreach (_pool_tournament_preference_field_map() as $ptype => $field_name) {
     if (empty($prefs[$ptype])) {
       continue;
     }
@@ -914,18 +907,11 @@ function pool_tournament_views_query_alter(&$view, &$query) {
   module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.forms');
   $prefs = _pool_tournament_player_preferences_load($player->id());
 
-  $field_map = array(
-    'game_type'        => 'field_data_field_game_type_id',
-    'player_type'      => 'field_data_field_player_type_id',
-    'tournament_type'  => 'field_data_field_tournament_type_id',
-    'venue'            => 'field_data_field_venue_id',
-    'sanctioning_body' => 'field_data_field_sanctioning_body_id',
-  );
-
-  foreach ($field_map as $ptype => $table) {
+  foreach (_pool_tournament_preference_field_map() as $ptype => $field_name) {
     if (empty($prefs[$ptype])) {
       continue;
     }
+    $table = 'field_data_' . $field_name;
     $condition = db_or();
     foreach ($prefs[$ptype] as $entity_id) {
       $condition->condition($table . '.field_' . $ptype . '_id_value', $entity_id);
@@ -998,6 +984,26 @@ function pool_tournament_entity_plus_view($entity, $entity_type, $view_mode, $la
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * The 5 preference/matching dimensions, mapping preference_type (as stored
+ * in pool_tournament_player_preference and returned by
+ * _pool_tournament_player_preferences_load()) to the tournament node's
+ * corresponding Field API field name. Shared by the /tournaments preference
+ * filter, hook_views_query_alter() (dead code today, but kept accurate),
+ * and the matching subsystem in pool_tournament.matching.inc -- previously
+ * copy-pasted in three places with two slightly different shapes; this is
+ * the one source of truth now.
+ */
+function _pool_tournament_preference_field_map() {
+  return array(
+    'game_type'        => 'field_game_type_id',
+    'player_type'      => 'field_player_type_id',
+    'tournament_type'  => 'field_tournament_type_id',
+    'venue'            => 'field_venue_id',
+    'sanctioning_body' => 'field_sanctioning_body_id',
+  );
+}
 
 function _pool_tournament_bundle_list($config_prefix) {
   $bundles = array();
