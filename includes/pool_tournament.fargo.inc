@@ -30,9 +30,12 @@ function pool_tournament_fargo_lookup($query) {
  * @param string $query
  *   Player full name ("First Last") or Fargo member ID.
  *
- * @return array
+ * @return array|FALSE
  *   All matching Fargo player records (possibly more than one -- e.g. two
- *   people sharing a name), or an empty array if none/on failure.
+ *   people sharing a name), an empty array if the lookup succeeded but
+ *   found no matches, or FALSE if the Fargo service itself couldn't be
+ *   reached. See _pool_tournament_fargo_request() -- callers that need to
+ *   tell "service down" apart from "no matches" must check `=== FALSE`.
  */
 function pool_tournament_fargo_lookup_all($query) {
   return _pool_tournament_fargo_request($query);
@@ -41,9 +44,17 @@ function pool_tournament_fargo_lookup_all($query) {
 /**
  * Shared HTTP request/decode logic for the Fargo indexsearch endpoint.
  *
- * @return array
- *   All matching records ($data['value']), or an empty array on failure or
- *   no matches.
+ * @return array|FALSE
+ *   All matching records ($data['value']), possibly an empty array if the
+ *   request succeeded but found nothing -- OR FALSE if the request itself
+ *   failed (non-200 response, connection error, timeout). These are NOT
+ *   the same thing: "the service is unreachable" and "the service
+ *   responded and found no match" need different handling by callers that
+ *   run an automated batch (e.g. a fargo-limit eligibility check across
+ *   every player for a new tournament) -- a down service should stop the
+ *   whole batch with a surfaced error, not get silently treated as
+ *   "everyone is ineligible". Check `=== FALSE` explicitly; don't rely on
+ *   emptiness/falsiness alone to tell the two apart.
  */
 function _pool_tournament_fargo_request($query) {
   $url = 'https://dashboard.fargorate.com/api/indexsearch?q=' . rawurlencode($query);
@@ -54,8 +65,8 @@ function _pool_tournament_fargo_request($query) {
 
   if ($response->code != 200) {
     watchdog('pool_tournament', 'Fargo lookup failed (HTTP @code) for query: @q',
-      array('@code' => $response->code, '@q' => $query), WATCHDOG_WARNING);
-    return array();
+      array('@code' => $response->code, '@q' => $query), WATCHDOG_ERROR);
+    return FALSE;
   }
 
   $data = json_decode($response->data, TRUE);

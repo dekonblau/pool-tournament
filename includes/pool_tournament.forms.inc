@@ -164,7 +164,11 @@ function pool_tournament_player_fargo_lookup_submit($form, &$form_state) {
   $results = pool_tournament_fargo_lookup_all($query);
   unset($form_state['fargo_candidates']);
 
-  if (empty($results)) {
+  if ($results === FALSE) {
+    // Distinct from "no match" -- the service itself didn't respond.
+    backdrop_set_message(t('Could not reach the Fargo Rate service. Try again shortly.'), 'error');
+  }
+  elseif (empty($results)) {
     backdrop_set_message(t('No Fargo profile found for %q.', array('%q' => $query)), 'warning');
   }
   elseif (count($results) === 1) {
