@@ -73,19 +73,6 @@ function pool_tournament_schema() {
     'indexes' => array('bundle' => array('bundle')),
   );
 
-  // Class-table-inheritance-style extension table -- the Fargo rating
-  // ceiling only means something for the fargo_limit/fargo_limit_handicapped
-  // tournament_type bundles, not for open or the plain handicapped bundle,
-  // so it lives here rather than as a base column shared by every bundle.
-  $schema['pool_tournament_tournament_type_fargo_limit'] = array(
-    'description' => 'Fargo rating ceiling for fargo_limit(_handicapped) tournament_type instances.',
-    'fields' => array(
-      'tournament_type_id'   => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'FK to pool_tournament_tournament_type.'),
-      'fargo_rating_ceiling' => array('type' => 'int', 'not null' => FALSE, 'default' => NULL, 'description' => 'Maximum eligible Fargo effectiveRating.'),
-    ),
-    'primary key' => array('tournament_type_id'),
-  );
-
   $schema['pool_tournament_venue'] = array(
     'description' => 'Stores venue entities.',
     'fields' => array(
@@ -95,7 +82,9 @@ function pool_tournament_schema() {
       'address'     => array('type' => 'varchar', 'length' => 255, 'not null' => FALSE, 'default' => NULL),
       'city'        => array('type' => 'varchar', 'length' => 128, 'not null' => FALSE, 'default' => NULL),
       'state'       => array('type' => 'varchar', 'length' => 64, 'not null' => FALSE, 'default' => NULL),
+      'zip'         => array('type' => 'varchar', 'length' => 16, 'not null' => FALSE, 'default' => NULL),
       'phone'       => array('type' => 'varchar', 'length' => 32, 'not null' => FALSE, 'default' => NULL),
+      'num_tables'  => array('type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'default' => NULL, 'description' => 'Number of pool tables at this venue.'),
       'created'     => array('type' => 'int', 'not null' => TRUE, 'default' => 0),
     ),
     'primary key' => array('venue_id'),
@@ -117,16 +106,52 @@ function pool_tournament_schema() {
   );
 
   // Per-tournament properties that don't fit Field API's flat storage --
-  // one row per tournament node, real FK to node.nid. Currently just
-  // team_size, which only applies when the tournament's player_type
-  // resolves to bundle 'team' (see pool_tournament_tournament_team_size_validate()).
+  // one row per tournament node, real FK to node.nid. team_size only applies
+  // when the tournament's player_type resolves to bundle 'team' (see
+  // pool_tournament_tournament_team_size_validate()). fargo_rating_ceiling
+  // is a per-tournament decision the venue makes at creation time (NOT a
+  // property of the tournament_type bundle/instance -- the same
+  // fargo_limit(_handicapped) type gets reused across many tournaments,
+  // each free to set its own ceiling), only meaningful when the tournament's
+  // tournament_type resolves to bundle fargo_limit or fargo_limit_handicapped
+  // (see pool_tournament_tournament_fargo_ceiling_validate()).
   $schema['pool_tournament_tournament_extra'] = array(
     'description' => 'Extra per-tournament properties keyed by node ID.',
     'fields' => array(
       'nid'       => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Tournament node ID.'),
       'team_size' => array('type' => 'int', 'size' => 'tiny', 'unsigned' => TRUE, 'not null' => FALSE, 'default' => NULL, 'description' => 'Required team size; only meaningful when player_type bundle is team.'),
+      'fargo_rating_ceiling' => array('type' => 'int', 'not null' => FALSE, 'default' => NULL, 'description' => 'Maximum eligible Fargo effectiveRating; only meaningful when tournament_type bundle is fargo_limit(_handicapped).'),
+      'td_uid' => array('type' => 'int', 'unsigned' => TRUE, 'not null' => FALSE, 'default' => NULL, 'description' => 'Tournament Director -- a Backdrop user account (uid), not necessarily a player entity.'),
+      'in_play' => array('type' => 'int', 'size' => 'tiny', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, 'description' => 'Boolean. Once set by the TD, self-service registration/withdrawal is blocked -- only the TD/an admin may still modify the roster.'),
     ),
     'primary key' => array('nid'),
+  );
+
+  // Tournament roster. A weak entity -- no identity of its own, no bundles,
+  // just a fact keyed by (nid, player_id): this player signed up for this
+  // tournament at this time, with their Fargo rating as of that moment.
+  // fargo_rating_snapshot is captured once at registration and never
+  // updated afterward even if the player's live rating later changes --
+  // it's a historical record (useful for e.g. auditing a fargo_limit
+  // tournament's eligibility after the fact), not a live value. Use
+  // pool_tournament_fargo_eligibility() for live eligibility checks.
+  $schema['pool_tournament_registration'] = array(
+    'description' => 'Player registrations for a tournament, with a point-in-time Fargo rating snapshot.',
+    'fields' => array(
+      'registration_id' => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE),
+      'nid'              => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'Tournament node ID.'),
+      'player_id'        => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'FK to pool_tournament_player.'),
+      'fargo_rating_snapshot' => array('type' => 'varchar', 'length' => 16, 'not null' => FALSE, 'default' => NULL, 'description' => 'effectiveRating at the moment of registration, if known.'),
+      'registered' => array('type' => 'int', 'not null' => TRUE, 'default' => 0, 'description' => 'Unix timestamp of registration.'),
+    ),
+    'primary key' => array('registration_id'),
+    'unique keys' => array(
+      'nid_player' => array('nid', 'player_id'),
+    ),
+    'indexes' => array(
+      'nid'       => array('nid'),
+      'player_id' => array('player_id'),
+    ),
   );
 
   // Many-to-many: player preferences (game_type, player_type, tournament_type, venue).
@@ -517,6 +542,108 @@ function pool_tournament_update_1006() {
   if (!db_table_exists('pool_tournament_tournament_type_fargo_limit')) {
     $schema = pool_tournament_schema();
     db_create_table('pool_tournament_tournament_type_fargo_limit', $schema['pool_tournament_tournament_type_fargo_limit']);
+  }
+}
+
+/**
+ * Create pool_tournament_registration for sites installed before it was
+ * added to the schema.
+ */
+function pool_tournament_update_1007() {
+  if (!db_table_exists('pool_tournament_registration')) {
+    $schema = pool_tournament_schema();
+    db_create_table('pool_tournament_registration', $schema['pool_tournament_registration']);
+  }
+}
+
+/**
+ * Moves the Fargo rating ceiling from the tournament_type entity to a
+ * per-tournament property, and drops the now-obsolete
+ * pool_tournament_tournament_type_fargo_limit table.
+ *
+ * The ceiling was originally (wrongly) modeled as a property of the
+ * tournament_type bundle/instance, shared across every tournament that
+ * reused it. It's actually a decision the venue makes fresh for each
+ * tournament it creates, so it now lives in pool_tournament_tournament_extra
+ * (keyed by nid) alongside team_size. No data migration needed -- the only
+ * rows that ever existed in the old table were test fixtures, already
+ * deleted during development; nothing live depended on it.
+ */
+function pool_tournament_update_1008() {
+  if (!db_field_exists('pool_tournament_tournament_extra', 'fargo_rating_ceiling')) {
+    db_add_field('pool_tournament_tournament_extra', 'fargo_rating_ceiling', array(
+      'type'        => 'int',
+      'not null'    => FALSE,
+      'default'     => NULL,
+      'description' => 'Maximum eligible Fargo effectiveRating; only meaningful when tournament_type bundle is fargo_limit(_handicapped).',
+    ));
+  }
+  if (db_table_exists('pool_tournament_tournament_type_fargo_limit')) {
+    db_drop_table('pool_tournament_tournament_type_fargo_limit');
+  }
+}
+
+/**
+ * Adds num_tables to pool_tournament_venue for sites installed before it
+ * was added to the schema.
+ */
+function pool_tournament_update_1009() {
+  if (!db_field_exists('pool_tournament_venue', 'num_tables')) {
+    db_add_field('pool_tournament_venue', 'num_tables', array(
+      'type'        => 'int',
+      'unsigned'    => TRUE,
+      'not null'    => FALSE,
+      'default'     => NULL,
+      'description' => 'Number of pool tables at this venue.',
+    ));
+  }
+}
+
+/**
+ * Adds zip to pool_tournament_venue for sites installed before it was
+ * added to the schema.
+ */
+function pool_tournament_update_1010() {
+  if (!db_field_exists('pool_tournament_venue', 'zip')) {
+    db_add_field('pool_tournament_venue', 'zip', array(
+      'type'     => 'varchar',
+      'length'   => 16,
+      'not null' => FALSE,
+      'default'  => NULL,
+    ));
+  }
+}
+
+/**
+ * Adds td_uid (Tournament Director) to pool_tournament_tournament_extra
+ * for sites installed before it was added to the schema.
+ */
+function pool_tournament_update_1011() {
+  if (!db_field_exists('pool_tournament_tournament_extra', 'td_uid')) {
+    db_add_field('pool_tournament_tournament_extra', 'td_uid', array(
+      'type'        => 'int',
+      'unsigned'    => TRUE,
+      'not null'    => FALSE,
+      'default'     => NULL,
+      'description' => 'Tournament Director -- a Backdrop user account (uid), not necessarily a player entity.',
+    ));
+  }
+}
+
+/**
+ * Adds in_play (Tournament in Play) to pool_tournament_tournament_extra
+ * for sites installed before it was added to the schema.
+ */
+function pool_tournament_update_1012() {
+  if (!db_field_exists('pool_tournament_tournament_extra', 'in_play')) {
+    db_add_field('pool_tournament_tournament_extra', 'in_play', array(
+      'type'        => 'int',
+      'size'        => 'tiny',
+      'unsigned'    => TRUE,
+      'not null'    => TRUE,
+      'default'     => 0,
+      'description' => 'Boolean. Once set by the TD, self-service registration/withdrawal is blocked -- only the TD/an admin may still modify the roster.',
+    ));
   }
 }
 

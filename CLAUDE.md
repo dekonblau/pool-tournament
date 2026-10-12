@@ -136,9 +136,12 @@ cd /var/www/backdrop && bee cache-clear
 ## Open items
 1. Entity base table vs Field API field split — user is defining which fields belong where;
    schema refactor pending that decision.
-2. Reference entity instances need to be created (player_type, game_type, tournament_type, venue)
-   before tournament nodes can be meaningfully filled out.
+2. Reference entity instances: player_type (7/7 bundles) and game_type (11/11 bundles) are
+   fully seeded. tournament_type has all 4 bundles. venue has one placeholder row
+   ("Kip's Pool Hall", fake address) awaiting real data.
 3. Views config JSON (`pool_tournament_upcoming`) for `/tournaments` — currently falls back
    to a bare SQL query. Alternatively improve the fallback query directly.
-4. Ref entity add routes (`player-type/add/%bundle` etc.) may have same shim bug as
-   `player/add/%bundle` (fixed) — need to verify and fix if so.
+4. ~~Ref entity add routes may have same shim bug as `player/add/%bundle`~~ — checked
+   2026-09-28: already fixed generically. All 5 types share `pool_tournament_ref_entity_
+   add_form_page()`, which always wraps the raw bundle string via `entity_create()` before
+   handing off to the form. Verified live for all 5 entity types, no bug found.

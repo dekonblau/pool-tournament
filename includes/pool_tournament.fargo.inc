@@ -118,6 +118,37 @@ function pool_tournament_fargo_map_to_player(array $fargo_data) {
 }
 
 /**
+ * Fetches a player's current Fargo effectiveRating via a fresh live lookup
+ * -- never the player's stored fargo_rating column, which could be stale.
+ *
+ * @param object $player
+ *   A player entity.
+ *
+ * @return string|NULL|FALSE
+ *   The effectiveRating as returned by Fargo, NULL if the player has no
+ *   member_id on file or Fargo has no record for it, or FALSE if the Fargo
+ *   service itself is unreachable -- see _pool_tournament_fargo_request().
+ *   Callers running a batch across many players must treat FALSE as a
+ *   hard-stop-the-whole-batch signal, not a single-player failure.
+ */
+function pool_tournament_fargo_current_rating($player) {
+  if (empty($player->member_id)) {
+    return NULL;
+  }
+
+  $results = pool_tournament_fargo_lookup_all($player->member_id);
+  if ($results === FALSE) {
+    return FALSE;
+  }
+  if (empty($results)) {
+    return NULL;
+  }
+
+  $mapped = pool_tournament_fargo_map_to_player($results[0]);
+  return isset($mapped['fargo_rating']) ? $mapped['fargo_rating'] : NULL;
+}
+
+/**
  * Updates a player entity with data from the Fargo API.
  *
  * @param int $player_id

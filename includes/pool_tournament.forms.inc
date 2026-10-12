@@ -490,25 +490,52 @@ function pool_tournament_generic_entity_form($form, &$form_state, $entity_type, 
   }
 
   if ($entity_type === 'venue') {
+    // autocomplete => off on all of these -- browsers will sometimes try to
+    // autofill the current user's own saved address/phone into fields named
+    // address/city/state/phone, which can visually overlap the label with
+    // an autofill suggestion/icon and intercept clicks -- these fields are
+    // the *venue's* info, never the user's own.
     $form['address'] = array(
       '#type'          => 'textfield',
       '#title'         => t('Address'),
       '#default_value' => isset($entity->address) ? $entity->address : '',
+      '#attributes'    => array('autocomplete' => 'off'),
     );
     $form['city'] = array(
       '#type'          => 'textfield',
       '#title'         => t('City'),
       '#default_value' => isset($entity->city) ? $entity->city : '',
+      '#attributes'    => array('autocomplete' => 'off'),
     );
     $form['state'] = array(
       '#type'          => 'textfield',
       '#title'         => t('State'),
       '#default_value' => isset($entity->state) ? $entity->state : '',
+      '#attributes'    => array('autocomplete' => 'off'),
+    );
+    $form['zip'] = array(
+      '#type'          => 'textfield',
+      '#title'         => t('Zip'),
+      '#default_value' => isset($entity->zip) ? $entity->zip : '',
+      '#attributes'    => array('autocomplete' => 'off'),
     );
     $form['phone'] = array(
-      '#type'          => 'textfield',
+      // 'tel' -- a core Backdrop Form API element type (renders <input
+      // type="tel">), the same element the telephone module's own field
+      // widget uses under the hood. No Field API involved -- phone is a
+      // plain base-table column here, not a Field API field, but the
+      // element type itself doesn't require one.
+      '#type'          => 'tel',
       '#title'         => t('Phone'),
+      '#title_display' => 'before',
       '#default_value' => isset($entity->phone) ? $entity->phone : '',
+      '#attributes'    => array('autocomplete' => 'off'),
+    );
+    $form['num_tables'] = array(
+      '#type'          => 'number',
+      '#title'         => t('Number of tables'),
+      '#default_value' => isset($entity->num_tables) ? $entity->num_tables : '',
+      '#min'           => 0,
     );
   }
 
@@ -521,29 +548,12 @@ function pool_tournament_generic_entity_form($form, &$form_state, $entity_type, 
     );
   }
 
-  // Fargo rating ceiling only means something for the two Fargo-based
-  // bundles -- not open, and not the plain (non-Fargo) handicapped bundle.
-  // Lives in pool_tournament_tournament_type_fargo_limit, a class-table-
-  // inheritance-style extension table, not a base column every bundle
-  // carries. Persisted in pool_tournament_generic_entity_form_submit().
-  if ($entity_type === 'tournament_type' && in_array($entity->bundle, array('fargo_limit', 'fargo_limit_handicapped'))) {
-    $ceiling = NULL;
-    if ($entity->id()) {
-      $ceiling = db_select('pool_tournament_tournament_type_fargo_limit', 'f')
-        ->fields('f', array('fargo_rating_ceiling'))
-        ->condition('tournament_type_id', $entity->id())
-        ->execute()
-        ->fetchField();
-    }
-    $form['fargo_rating_ceiling'] = array(
-      '#type'          => 'number',
-      '#title'         => t('Fargo rating ceiling'),
-      '#description'   => t('Maximum eligible Fargo effectiveRating for this tournament type.'),
-      '#default_value' => ($ceiling !== FALSE && $ceiling !== NULL) ? $ceiling : '',
-      '#min'           => 0,
-      '#required'      => TRUE,
-    );
-  }
+  // Fargo rating ceiling is NOT a property of the tournament_type bundle/
+  // instance -- it's a decision the venue makes fresh for each tournament
+  // it creates (the same fargo_limit(_handicapped) type gets reused across
+  // many tournaments with different ceilings). It lives on the tournament
+  // node instead -- see pool_tournament_tournament_node_form_alter() and
+  // pool_tournament_tournament_fargo_ceiling_validate() in this file.
 
   field_attach_form($entity_type, $entity, $form, $form_state);
 
@@ -576,10 +586,13 @@ function pool_tournament_generic_entity_form_submit($form, &$form_state) {
     $entity->players_per_side = $form_state['values']['players_per_side'];
   }
   if ($entity_type === 'venue') {
-    foreach (array('address', 'city', 'state', 'phone') as $f) {
+    foreach (array('address', 'city', 'state', 'zip', 'phone', 'num_tables') as $f) {
       if (isset($form_state['values'][$f])) {
         $entity->$f = $form_state['values'][$f];
       }
+    }
+    if (!empty($entity->phone)) {
+      $entity->phone = _pool_tournament_normalize_phone($entity->phone);
     }
   }
   if ($entity_type === 'sanctioning_body' && isset($form_state['values']['rulebook_url'])) {
@@ -588,15 +601,6 @@ function pool_tournament_generic_entity_form_submit($form, &$form_state) {
 
   field_attach_submit($entity_type, $entity, $form, $form_state);
   $entity->save();
-
-  // Needs the entity's own ID, which only exists after save() -- for a
-  // brand-new entity, id() is NULL until this point.
-  if ($entity_type === 'tournament_type' && isset($form_state['values']['fargo_rating_ceiling'])) {
-    db_merge('pool_tournament_tournament_type_fargo_limit')
-      ->key(array('tournament_type_id' => $entity->id()))
-      ->fields(array('fargo_rating_ceiling' => $form_state['values']['fargo_rating_ceiling']))
-      ->execute();
-  }
 
   backdrop_set_message(t('%type %label saved.', array('%type' => $entity_type, '%label' => $entity->label)));
 
@@ -609,6 +613,37 @@ function pool_tournament_generic_entity_form_submit($form, &$form_state) {
   );
   $base = isset($path_map[$entity_type]) ? $path_map[$entity_type] : $entity_type;
   $form_state['redirect'] = $base . '/' . $entity->id();
+}
+
+/**
+ * Generic delete confirm form for the 5 ref entity types (player_type,
+ * game_type, tournament_type, venue, sanctioning_body) -- mirrors
+ * pool_tournament_player_delete_form().
+ *
+ * @param string $entity_type
+ * @param object $entity
+ * @param string $list_path
+ *   Where to redirect after deleting (and the Cancel link's target) --
+ *   e.g. 'venues' for the venue entity type.
+ */
+function pool_tournament_ref_entity_delete_form($form, &$form_state, $entity_type, $entity, $list_path) {
+  $form_state['entity_type'] = $entity_type;
+  $form_state['entity']      = $entity;
+  $form_state['list_path']   = $list_path;
+  return confirm_form($form,
+    t('Delete %label?', array('%label' => $entity->label())),
+    $list_path,
+    t('This will permanently delete this record.'),
+    t('Delete'), t('Cancel')
+  );
+}
+
+function pool_tournament_ref_entity_delete_form_submit($form, &$form_state) {
+  $entity = $form_state['entity'];
+  $label  = $entity->label();
+  $entity->delete();
+  backdrop_set_message(t('%label deleted.', array('%label' => $label)));
+  $form_state['redirect'] = $form_state['list_path'];
 }
 
 // ---------------------------------------------------------------------------
@@ -663,6 +698,53 @@ function pool_tournament_tournament_node_form_alter(&$form, &$form_state) {
     '#weight'        => isset($form['field_player_type_id']['#weight']) ? $form['field_player_type_id']['#weight'] + 1 : 0,
   );
   $form['#validate'][] = 'pool_tournament_tournament_team_size_validate';
+
+  // Fargo rating ceiling: also lives in pool_tournament_tournament_extra,
+  // not a Field API field or a property of the tournament_type entity --
+  // it's a decision the venue makes fresh for each tournament, since the
+  // same fargo_limit(_handicapped) tournament_type gets reused across many
+  // tournaments with different ceilings. Same #states limitation as
+  // team_size: the tournament_type select's options are entity IDs, not
+  // bundle names, so gating is done server-side in the validate handler.
+  $default_ceiling = NULL;
+  if (!empty($form['#node']->nid)) {
+    $default_ceiling = db_select('pool_tournament_tournament_extra', 'e')
+      ->fields('e', array('fargo_rating_ceiling'))
+      ->condition('nid', $form['#node']->nid)
+      ->execute()
+      ->fetchField();
+  }
+  $form['fargo_rating_ceiling'] = array(
+    '#type'          => 'number',
+    '#title'         => t('Fargo rating ceiling'),
+    '#description'   => t('Only used when Tournament Type is a Fargo-limited format. Maximum eligible Fargo effectiveRating to register.'),
+    '#default_value' => ($default_ceiling !== FALSE && $default_ceiling !== NULL) ? $default_ceiling : '',
+    '#min'           => 0,
+    '#weight'        => isset($form['field_tournament_type_id']['#weight']) ? $form['field_tournament_type_id']['#weight'] + 1 : 0,
+  );
+  $form['#validate'][] = 'pool_tournament_tournament_fargo_ceiling_validate';
+
+  // Tournament Director: also lives in pool_tournament_tournament_extra,
+  // not a Field API field -- a Backdrop user account (uid), not
+  // necessarily a player entity. Unlike team_size/fargo_rating_ceiling,
+  // not conditional on any other field's value, so no validate handler
+  // is needed -- any active user can be assigned, or none yet.
+  $default_td_uid = NULL;
+  if (!empty($form['#node']->nid)) {
+    $default_td_uid = db_select('pool_tournament_tournament_extra', 'e')
+      ->fields('e', array('td_uid'))
+      ->condition('nid', $form['#node']->nid)
+      ->execute()
+      ->fetchField();
+  }
+  $form['td_uid'] = array(
+    '#type'          => 'select',
+    '#title'         => t('Tournament Director'),
+    '#description'   => t('Records match results and manages play for this tournament. Does not need to be a registered player.'),
+    '#options'       => array('' => t('- None -')) + _pool_tournament_user_options(),
+    '#default_value' => ($default_td_uid !== FALSE && $default_td_uid !== NULL) ? $default_td_uid : '',
+    '#weight'        => isset($form['field_venue_id']['#weight']) ? $form['field_venue_id']['#weight'] + 1 : 0,
+  );
 }
 
 /**
@@ -696,9 +778,63 @@ function pool_tournament_tournament_team_size_validate($form, &$form_state) {
   }
 }
 
+/**
+ * Validate handler for the tournament node form's fargo_rating_ceiling
+ * field.
+ *
+ * Requires a value when the selected tournament_type's bundle is
+ * fargo_limit or fargo_limit_handicapped; clears any submitted value
+ * otherwise so a stale ceiling left over from a previous edit (or from
+ * switching away from a Fargo-limited type) doesn't get persisted.
+ */
+function pool_tournament_tournament_fargo_ceiling_validate($form, &$form_state) {
+  $tournament_type_id = isset($form_state['values']['field_tournament_type_id'][LANGUAGE_NONE][0]['value'])
+    ? $form_state['values']['field_tournament_type_id'][LANGUAGE_NONE][0]['value']
+    : NULL;
+
+  $is_fargo_limited = FALSE;
+  if (!empty($tournament_type_id)) {
+    $tournament_type = entity_load('tournament_type', $tournament_type_id);
+    if ($tournament_type && in_array($tournament_type->bundle(), array('fargo_limit', 'fargo_limit_handicapped'))) {
+      $is_fargo_limited = TRUE;
+    }
+  }
+
+  if ($is_fargo_limited) {
+    $ceiling = isset($form_state['values']['fargo_rating_ceiling']) && $form_state['values']['fargo_rating_ceiling'] !== ''
+      ? (int) $form_state['values']['fargo_rating_ceiling'] : NULL;
+    if ($ceiling === NULL || $ceiling <= 0) {
+      form_set_error('fargo_rating_ceiling', t('A Fargo rating ceiling is required for a Fargo-limited tournament type.'));
+    }
+  }
+  else {
+    $form_state['values']['fargo_rating_ceiling'] = NULL;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Normalizes a venue phone number to (XXX) XXX-XXXX on save.
+ *
+ * Only reformats a plain 10-digit US number, or an 11-digit number with a
+ * leading 1 (stripped first). Anything else -- an extension, an
+ * international number, too few/many digits -- is left exactly as typed
+ * rather than guessed at, since this field isn't required and venues may
+ * reasonably enter it in a form this function doesn't recognize.
+ */
+function _pool_tournament_normalize_phone($phone) {
+  $digits = preg_replace('/\D+/', '', $phone);
+  if (strlen($digits) === 11 && $digits[0] === '1') {
+    $digits = substr($digits, 1);
+  }
+  if (strlen($digits) === 10) {
+    return sprintf('(%s) %s-%s', substr($digits, 0, 3), substr($digits, 3, 3), substr($digits, 6, 4));
+  }
+  return $phone;
+}
 
 /**
  * Returns the fixed players-per-side count implied by a player_type bundle,
@@ -724,6 +860,26 @@ function _pool_tournament_entity_options($entity_type) {
   $options  = array();
   foreach ($entities as $entity) {
     $options[$entity->id()] = check_plain($entity->label());
+  }
+  return $options;
+}
+
+/**
+ * Returns an options array (uid => username) of active Backdrop user
+ * accounts, for the Tournament Director select -- any active user is
+ * eligible, not just ones with a player entity.
+ */
+function _pool_tournament_user_options() {
+  $accounts = db_select('users', 'u')
+    ->fields('u', array('uid', 'name'))
+    ->condition('uid', 0, '>')
+    ->condition('status', 1)
+    ->orderBy('name')
+    ->execute()
+    ->fetchAllAssoc('uid');
+  $options = array();
+  foreach ($accounts as $uid => $account) {
+    $options[$uid] = check_plain($account->name);
   }
   return $options;
 }
