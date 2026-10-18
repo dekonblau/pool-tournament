@@ -144,11 +144,16 @@ function pool_tournament_tournament_td_access($node) {
 
 /**
  * Whether the current user may self-register/withdraw: must be a
- * tournament node, not yet in play, and the user must have a linked
- * player record.
+ * tournament node, registration must actually be open (a trial-balloon
+ * tournament with "Do not open registration yet" checked doesn't accept
+ * self-registration even though it isn't "in play" either), not yet in
+ * play, and the user must have a linked player record.
  */
 function pool_tournament_registration_self_access($node) {
   if (!is_object($node) || $node->type !== 'tournament') {
+    return FALSE;
+  }
+  if (!_pool_tournament_registration_is_open($node)) {
     return FALSE;
   }
   if (pool_tournament_tournament_in_play($node->nid)) {

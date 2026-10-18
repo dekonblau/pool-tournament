@@ -648,6 +648,69 @@ function pool_tournament_update_1012() {
 }
 
 /**
+ * Adds field_registration_fee and field_greens_fee_included to the
+ * tournament content type, and enables comments on it (open by default --
+ * comments double as how players signal interest during a "Do not open
+ * registration yet" trial-balloon tournament, see
+ * pool_tournament_tournament_node_form_alter()).
+ */
+function pool_tournament_update_1013() {
+  $fields = array(
+    'field_registration_fee' => array(
+      'field' => array(
+        'field_name'  => 'field_registration_fee',
+        'type'        => 'number_decimal',
+        'cardinality' => 1,
+        'settings'    => array('precision' => 10, 'scale' => 2, 'decimal_separator' => '.'),
+      ),
+      'instance' => array(
+        'field_name'  => 'field_registration_fee',
+        'entity_type' => 'node',
+        'bundle'      => 'tournament',
+        'label'       => t('Registration Fee'),
+        'required'    => FALSE,
+        'settings'    => array('prefix' => '$'),
+        'widget'      => array('type' => 'number'),
+      ),
+    ),
+    'field_greens_fee_included' => array(
+      'field' => array(
+        'field_name'  => 'field_greens_fee_included',
+        'type'        => 'list_boolean',
+        'cardinality' => 1,
+        'settings'    => array('allowed_values' => array(0 => 'Not included', 1 => 'Included')),
+      ),
+      'instance' => array(
+        'field_name'    => 'field_greens_fee_included',
+        'entity_type'   => 'node',
+        'bundle'        => 'tournament',
+        'label'         => t('Greens Fee Included'),
+        'required'      => FALSE,
+        'default_value' => array(array('value' => 1)),
+        'widget'        => array('type' => 'options_onoff'),
+      ),
+    ),
+  );
+  foreach ($fields as $field_name => $definition) {
+    if (!field_info_field($field_name)) {
+      field_create_field($definition['field']);
+    }
+    if (!field_info_instance('node', $field_name, 'tournament')) {
+      field_create_instance($definition['instance']);
+    }
+  }
+
+  $type = node_type_load('tournament');
+  if ($type) {
+    module_load_include('module', 'comment');
+    _comment_body_field_create((object) array('type' => 'tournament'));
+    $type->settings['comment_enabled'] = TRUE;
+    $type->settings['comment_default'] = COMMENT_NODE_OPEN;
+    node_type_save($type);
+  }
+}
+
+/**
  * Implements hook_uninstall().
  */
 function pool_tournament_uninstall() {
@@ -662,6 +725,8 @@ function pool_tournament_uninstall() {
     'field_sanctioning_body_id',
     'field_max_players',
     'field_registration_open',
+    'field_registration_fee',
+    'field_greens_fee_included',
   );
   foreach ($fields as $field_name) {
     $instance = field_info_instance('node', $field_name, 'tournament');

@@ -654,6 +654,14 @@ function pool_tournament_ref_entity_delete_form_submit($form, &$form_state) {
  * Alters the tournament node form to use entity select widgets.
  */
 function pool_tournament_tournament_node_form_alter(&$form, &$form_state) {
+  $node = $form['#node'];
+  // Once registration has ever opened, these fields become permanently
+  // read-only -- changing them afterward would break the matching/
+  // eligibility contract players already registered under. See
+  // _pool_tournament_registration_is_open()'s docblock: this is a one-way
+  // flag, so "currently open" already means "has ever been open."
+  $registration_locked = !empty($node->nid) && _pool_tournament_registration_is_open($node);
+
   // Replace raw integer fields with select lists for entity references.
   foreach (array(
     'field_game_type_id'       => array('entity_type' => 'game_type',       'title' => t('Game Type')),
@@ -672,9 +680,53 @@ function pool_tournament_tournament_node_form_alter(&$form, &$form_state) {
         '#title'         => $info['title'],
         '#options'       => $options,
         '#default_value' => $current,
+        '#disabled'      => $registration_locked,
       );
     }
   }
+
+  // Tournament date: same permanent lock once registration has opened.
+  if (isset($form['field_tournament_date'][LANGUAGE_NONE][0]['value'])) {
+    $form['field_tournament_date'][LANGUAGE_NONE][0]['value']['#disabled'] = $registration_locked;
+  }
+
+  // Bracket manager ID: system-managed (see _pool_tournament_open_
+  // registration()) -- never directly editable by anyone, regardless of
+  // registration state. A wrong value here would silently break the
+  // BD<->BM link.
+  if (isset($form['field_bracket_manager_id'][LANGUAGE_NONE][0]['value'])) {
+    $form['field_bracket_manager_id'][LANGUAGE_NONE][0]['value']['#disabled'] = TRUE;
+  }
+
+  // "Do not open registration yet" -- an inverted-sense checkbox over the
+  // existing field_registration_open field (list_boolean, Open=1/
+  // Closed=0, defaults to Open). Checking it publishes the tournament as
+  // a trial balloon: visible and commentable (players signal interest via
+  // comments), but not yet synced to BM or notified to anyone. Unchecking
+  // it later is the one-way trigger that opens registration for good --
+  // see pool_tournament_node_update()'s transition detection. Once open,
+  // this is simply disabled, forced back to unchecked by Form API (a
+  // disabled element's submitted value is always forced to match its
+  // #default_value, so no separate enforcement is needed).
+  //
+  // NOTE: options_onoff is a FIELD_BEHAVIOR_CUSTOM widget -- unlike the
+  // select widgets above, it does NOT nest under [0]['value']; the whole
+  // element sits directly at [LANGUAGE_NONE] (confirmed against the
+  // rendered form: name="field_registration_open[und]", no [0][value]).
+  if (isset($form['field_registration_open'][LANGUAGE_NONE])) {
+    $current_value = isset($form['field_registration_open'][LANGUAGE_NONE]['#default_value'])
+      ? $form['field_registration_open'][LANGUAGE_NONE]['#default_value']
+      : 1;
+    $form['field_registration_open'][LANGUAGE_NONE] = array(
+      '#type'          => 'checkbox',
+      '#title'         => t('Do not open registration yet'),
+      '#description'   => t('Publish as a trial balloon -- visible and commentable, but not accepting registration or notifying anyone yet. Unchecking this later opens registration permanently; it cannot be closed again.'),
+      '#default_value' => $current_value ? 0 : 1,
+      '#disabled'      => $registration_locked,
+      '#weight'        => -5,
+    );
+  }
+  $form['#validate'][] = 'pool_tournament_tournament_registration_open_invert';
 
   // Team size lives in pool_tournament_tournament_extra, not a Field API
   // field (see _pool_tournament_save_tournament_extra()) -- only meaningful
@@ -809,6 +861,18 @@ function pool_tournament_tournament_fargo_ceiling_validate($form, &$form_state) 
   }
   else {
     $form_state['values']['fargo_rating_ceiling'] = NULL;
+  }
+}
+
+/**
+ * Inverts the "Do not open registration yet" checkbox back into
+ * field_registration_open's real stored sense (checked = Closed = 0,
+ * unchecked = Open = 1) before field_attach_submit() processes it.
+ */
+function pool_tournament_tournament_registration_open_invert($form, &$form_state) {
+  if (isset($form_state['values']['field_registration_open'][LANGUAGE_NONE])) {
+    $checked = $form_state['values']['field_registration_open'][LANGUAGE_NONE];
+    $form_state['values']['field_registration_open'][LANGUAGE_NONE] = $checked ? 0 : 1;
   }
 }
 

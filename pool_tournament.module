@@ -818,13 +818,28 @@ function pool_tournament_node_info() {
 // ---------------------------------------------------------------------------
 
 /**
- * Implements hook_node_insert().
+ * Whether a tournament node's registration is currently open
+ * (field_registration_open's stored value -- Open=1/Closed=0, see
+ * pool_tournament_tournament_node_form_alter()'s inverted "Do not open
+ * registration yet" checkbox over this same field). This is a one-way
+ * flag: once a save makes it TRUE, the form permanently disables the
+ * checkbox, so "currently open" and "has ever been open" are the same
+ * question -- no separate historical flag is needed.
  */
-function pool_tournament_node_insert($node) {
-  if ($node->type !== 'tournament') {
-    return;
-  }
-  _pool_tournament_save_tournament_extra($node);
+function _pool_tournament_registration_is_open($node) {
+  return !empty($node->field_registration_open[LANGUAGE_NONE][0]['value']);
+}
+
+/**
+ * Creates the tournament's bracket-manager container and runs the
+ * match-against-preferences notification pass. Called exactly once per
+ * tournament, at the moment registration actually opens -- either
+ * immediately at creation (the common case) or later, from
+ * pool_tournament_node_update(), when the TD unchecks a trial-balloon
+ * tournament's "Do not open registration yet" box. Never called again
+ * after that for the same tournament.
+ */
+function _pool_tournament_open_registration($node) {
   module_load_include('inc', 'pool_tournament', 'includes/pool_tournament.bracket');
   $result = pool_tournament_bracket_create_tournament($node->title);
   if ($result && !empty($result['id'])) {
@@ -832,10 +847,9 @@ function pool_tournament_node_insert($node) {
     $node->field_bracket_manager_id[LANGUAGE_NONE][0]['value'] = $result['id'];
     // db_merge, not db_update -- avoids triggering a hook_node_update loop
     // the same as db_update would, but actually persists the value. The
-    // field is empty at initial save time (nobody fills it in; it only
-    // ever gets a value here), so no field_data/field_revision row exists
-    // yet for it and db_update() was a silent no-op every single time --
-    // this field has never actually been populated for any tournament.
+    // field is empty until this point (nobody fills it in; it only ever
+    // gets a value here), so no field_data/field_revision row exists yet
+    // for it and db_update() would be a silent no-op.
     db_merge('field_data_field_bracket_manager_id')
       ->key(array(
         'entity_type' => 'node',
@@ -873,6 +887,19 @@ function pool_tournament_node_insert($node) {
 }
 
 /**
+ * Implements hook_node_insert().
+ */
+function pool_tournament_node_insert($node) {
+  if ($node->type !== 'tournament') {
+    return;
+  }
+  _pool_tournament_save_tournament_extra($node);
+  if (_pool_tournament_registration_is_open($node)) {
+    _pool_tournament_open_registration($node);
+  }
+}
+
+/**
  * Implements hook_node_update().
  */
 function pool_tournament_node_update($node) {
@@ -880,6 +907,19 @@ function pool_tournament_node_update($node) {
     return;
   }
   _pool_tournament_save_tournament_extra($node);
+
+  // Registration can only ever transition Closed -> Open (the form
+  // permanently disables the checkbox once Open), so comparing against
+  // the previous revision is sufficient to detect that transition exactly
+  // once -- this is the trial-balloon case: registration wasn't opened at
+  // creation, and this save is what finally opens it.
+  $was_open = isset($node->original) && _pool_tournament_registration_is_open($node->original);
+  $is_open  = _pool_tournament_registration_is_open($node);
+  if ($is_open && !$was_open) {
+    _pool_tournament_open_registration($node);
+    return;
+  }
+
   $bid = _pool_tournament_get_bracket_id($node);
   if (!$bid) {
     return;
